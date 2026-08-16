@@ -1,0 +1,6 @@
+domain,api_url,api_key
+example1.com,https://example1.com/api,abc123key
+example2.com,https://example2.com/api,def456key
+example3.com,https://example3.com/api,ghi789key
+www.example4.com,https://example4.com/api,
+example5.com,https://example5.com/api,jkl012key

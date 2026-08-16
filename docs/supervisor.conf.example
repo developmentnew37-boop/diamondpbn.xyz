@@ -1,0 +1,169 @@
+; Supervisor config for hidden-links-management (Laravel database queue)
+; Install: sudo cp docs/supervisor.conf.example /etc/supervisor/conf.d/hidden-links-management.conf
+; Then:    sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl start all
+;
+; .env requirements:
+;   QUEUE_CONNECTION=database
+;   DB_QUEUE_RETRY_AFTER=1900   (must exceed slowest job: delete_* = 1800s)
+;
+; Queue inventory:
+;   PBN publish:     batch_links, campaign_links
+;   PBN delete:      delete_batch_links, delete_campaign_links
+;   PBN remove link: remove_link_from_batch, remove_link_from_campaign
+;   PBN domains:     import_domains, domains, campaign_domains, toggle_hidden_links
+;   WP publish:      wp_batch_links
+;   WP delete:       delete_wp_batch_links
+;   WP remove link:  remove_link_from_wp_batch
+;   WP sites:        import_wp_sites, wp_sites
+
+; ---------------------------------------------------------------------------
+; Publish: batch + campaign link chunks (HTTP to PBN sites, ~120s per job)
+; ---------------------------------------------------------------------------
+[program:hidden-links-batch-links]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=batch_links --sleep=3 --tries=3 --timeout=130 --max-time=3600
+directory=/var/www/hidden-links-management
+user=www-data
+numprocs=2
+autostart=true
+autorestart=true
+stopwaitsecs=140
+redirect_stderr=true
+stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-batch-links.log
+stopasgroup=true
+killasgroup=true
+
+[program:hidden-links-campaign-links]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=campaign_links --sleep=3 --tries=3 --timeout=130 --max-time=3600
+directory=/var/www/hidden-links-management
+user=www-data
+numprocs=2
+autostart=true
+autorestart=true
+stopwaitsecs=140
+redirect_stderr=true
+stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-campaign-links.log
+stopasgroup=true
+killasgroup=true
+
+; ---------------------------------------------------------------------------
+; Publish: WordPress batch link chunks (HTTP to WP plugin API, ~120s per job)
+; Jobs: PublishWpBatchChunkJob
+; ---------------------------------------------------------------------------
+[program:hidden-links-wp-batch-links]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=wp_batch_links --sleep=3 --tries=3 --timeout=130 --max-time=3600
+directory=/var/www/hidden-links-management
+user=www-data
+numprocs=2
+autostart=true
+autorestart=true
+stopwaitsecs=140
+redirect_stderr=true
+stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-wp-batch-links.log
+stopasgroup=true
+killasgroup=true
+
+; ---------------------------------------------------------------------------
+; Delete: remote cleanup on PBN sites (up to 30 min per domain + HTTP retries)
+; Keep numprocs=1 per queue to avoid hammering many sites at once.
+; ---------------------------------------------------------------------------
+[program:hidden-links-delete-batch]
+process_name=%(program_name)s
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=delete_batch_links --sleep=5 --tries=1 --timeout=1900 --max-time=0
+directory=/var/www/hidden-links-management
+user=www-data
+numprocs=1
+autostart=true
+autorestart=true
+stopwaitsecs=2000
+redirect_stderr=true
+stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-delete-batch.log
+stopasgroup=true
+killasgroup=true
+
+[program:hidden-links-delete-campaign]
+process_name=%(program_name)s
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=delete_campaign_links --sleep=5 --tries=1 --timeout=1900 --max-time=0
+directory=/var/www/hidden-links-management
+user=www-data
+numprocs=1
+autostart=true
+autorestart=true
+stopwaitsecs=2000
+redirect_stderr=true
+stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-delete-campaign.log
+stopasgroup=true
+killasgroup=true
+
+; ---------------------------------------------------------------------------
+; Delete: remote cleanup on WordPress plugin sites
+; Jobs: DeleteWpBatchJob, DeleteWpBatchSiteJob
+; ---------------------------------------------------------------------------
+[program:hidden-links-delete-wp-batch]
+process_name=%(program_name)s
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=delete_wp_batch_links --sleep=5 --tries=1 --timeout=1900 --max-time=0
+directory=/var/www/hidden-links-management
+user=www-data
+numprocs=1
+autostart=true
+autorestart=true
+stopwaitsecs=2000
+redirect_stderr=true
+stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-delete-wp-batch.log
+stopasgroup=true
+killasgroup=true
+
+; ---------------------------------------------------------------------------
+; Remove single link from batch/campaign/WP batch (remote DELETE by URL, ~600s per job)
+; Jobs: RemoveLinkFromBatchJob, RemoveLinkFromCampaignJob, RemoveLinkFromWpBatchJob
+; ---------------------------------------------------------------------------
+[program:hidden-links-remove-links]
+process_name=%(program_name)s
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=remove_link_from_batch,remove_link_from_campaign,remove_link_from_wp_batch --sleep=3 --tries=1 --timeout=700 --max-time=0
+directory=/var/www/hidden-links-management
+user=www-data
+numprocs=1
+autostart=true
+autorestart=true
+stopwaitsecs=720
+redirect_stderr=true
+stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-remove-links.log
+stopasgroup=true
+killasgroup=true
+
+; ---------------------------------------------------------------------------
+; Domains: PBN health checks, CSV imports, campaign domains, hidden-link toggle
+; ---------------------------------------------------------------------------
+[program:hidden-links-domains]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=import_domains,domains,campaign_domains,toggle_hidden_links --sleep=3 --tries=3 --timeout=1200 --max-time=3600
+directory=/var/www/hidden-links-management
+user=www-data
+numprocs=2
+autostart=true
+autorestart=true
+stopwaitsecs=1300
+redirect_stderr=true
+stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-domains.log
+stopasgroup=true
+killasgroup=true
+
+; ---------------------------------------------------------------------------
+; WP Sites: health checks and CSV import
+; Jobs: WpSiteHealthCheckJob, ImportWpSitesJob
+; ---------------------------------------------------------------------------
+[program:hidden-links-wp-sites]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=import_wp_sites,wp_sites --sleep=3 --tries=3 --timeout=1200 --max-time=3600
+directory=/var/www/hidden-links-management
+user=www-data
+numprocs=2
+autostart=true
+autorestart=true
+stopwaitsecs=1300
+redirect_stderr=true
+stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-wp-sites.log
+stopasgroup=true
+killasgroup=true
