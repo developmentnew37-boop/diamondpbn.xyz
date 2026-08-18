@@ -91,7 +91,7 @@ class WpSiteController extends Controller
         $validated['user_id'] = $userId;
         $validated['domain'] = $normalized;
         $validated['domain_normalized'] = $normalized;
-        $validated['api_url'] = ApiUrlHelper::normalizeForStorage($validated['api_url']);
+        $validated['api_url'] = ApiUrlHelper::restApiBase($validated['api_url']);
         $validated['status'] = 'inactive';
 
         $wpSite = WpSite::create($validated);
@@ -147,7 +147,7 @@ class WpSiteController extends Controller
 
         $validated['domain'] = $normalized;
         $validated['domain_normalized'] = $normalized;
-        $validated['api_url'] = ApiUrlHelper::normalizeForStorage($validated['api_url']);
+        $validated['api_url'] = ApiUrlHelper::restApiBase($validated['api_url']);
         $wpSite->update($validated);
 
         return redirect()->route('wp-sites.index')->with('success', 'WP site updated.');

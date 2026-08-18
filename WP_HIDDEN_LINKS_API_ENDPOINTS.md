@@ -100,6 +100,7 @@ Base: `https://yoursite.com/wp-json/pbn-hidden-link-manager/v1`
 | **Delete by URL** | `DELETE` | `{base}/hidden-links/by-url` |
 | **Delete by batch ID** | `DELETE` | `{base}/hidden-links/by-batch-id` |
 | Toggle shortcode output | `POST` | `{base}/hidden-links/toggle-visibility` |
+| Block view source / inspect | `POST` | `{base}/hidden-links/toggle-inspect` |
 
 ### Important path note
 
@@ -136,7 +137,9 @@ Or edit manually in **WP Admin → PBN Hidden Link Manager → Links**.
 ```json
 {
   "status": true,
-  "message": "API is operational."
+  "message": "API is operational.",
+  "block_inspect": false,
+  "show_hidden_links": true
 }
 ```
 
@@ -385,6 +388,36 @@ If a site returns `404` for this route, log and continue.
 
 ---
 
+### 4.7 Block view source / inspect (plugin v1.3.0+)
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **URL** | `https://yoursite.com/wp-json/pbn-hidden-link-manager/v1/hidden-links/toggle-inspect` |
+
+**Body:**
+
+```json
+{
+  "block_inspect": true
+}
+```
+
+**Success `200`:**
+
+```json
+{
+  "status": true,
+  "block_inspect": true,
+  "message": "Inspect / view-source blocking enabled."
+}
+```
+
+Read current state from `GET /status` → `block_inspect`.  
+Dashboard: [BLOCK_VIEW_SOURCE_INSPECT.md](BLOCK_VIEW_SOURCE_INSPECT.md), route `wp-sites.block-inspect`.
+
+---
+
 ## 5. Suggested dashboard flows (new section)
 
 ### 5.1 Add WP domain
@@ -502,6 +535,7 @@ HTTP and HTTPS are both supported (match the live site). See **§2.1** for redir
 - [x] Delete batch: `DELETE /hidden-links/by-batch-id` on all batch domains  
 - [x] Map response payload by index; store remote `link_id`  
 - [x] Do not reuse campaign domain records for this section  
+- [x] Block inspect: read `block_inspect` from `GET /status`; toggle via `POST /hidden-links/toggle-inspect`  
 
 ### Implemented in Laravel
 
@@ -509,8 +543,11 @@ HTTP and HTTPS are both supported (match the live site). See **§2.1** for redir
 |------|-------------|------------|
 | WP Sites | `wp-sites.*` | `WpSiteController` |
 | WP Batches | `wp-batches.*` | `WpBatchController` |
+| Block inspect | `wp-sites.block-inspect*`, `wp-sites.toggle-inspect` | `WpBlockInspectController` |
 
-**Paths:** `/wp-sites/*`, `/wp-batches/*` — see `routes/web.php`.
+**Paths:** `/wp-sites/*`, `/wp-batches/*`, `/wp-sites/block-inspect` — see `routes/web.php`.
+
+**Jobs:** `ToggleWpInspectJob` on `wp_sites` queue.
 
 **Models:** `WpSite`, `WpBatch`, `WpLink`, `WpBatchSiteChunk`, `WpSiteImport`.
 

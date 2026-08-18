@@ -678,6 +678,7 @@ curl -X DELETE "http://site.com/wp-json/pbn-hidden-link-manager/v1/hidden-links/
 | Remove one link from batch | `DELETE` | `/hidden-links/by-url` |
 | Delete batch/campaign on site | `DELETE` | `/hidden-links/by-batch-id` |
 | Toggle hidden (optional) | `POST` | `/hidden-links/toggle-visibility` |
+| Block view source / inspect (v1.3.0+) | `POST` | `/hidden-links/toggle-inspect` |
 
 ---
 
@@ -685,6 +686,7 @@ curl -X DELETE "http://site.com/wp-json/pbn-hidden-link-manager/v1/hidden-links/
 
 - [`docs/API.md`](./API.md) — Full request/response examples (Laravel reference app)  
 - [`WP_HIDDEN_LINKS_API_ENDPOINTS.md`](../WP_HIDDEN_LINKS_API_ENDPOINTS.md) — Dashboard integration spec; **implemented** as WP Sites + WP Batches (`/wp-sites/*`, `/wp-batches/*`)  
+- [`BLOCK_VIEW_SOURCE_INSPECT.md`](../BLOCK_VIEW_SOURCE_INSPECT.md) — Inspect blocking API; **implemented** at `/wp-sites/block-inspect`  
 - [`PBN_API_SPECIFICATION.md`](../PBN_API_SPECIFICATION.md) — Integration notes for PBN domains  
 - Link Manager service: `app/Services/PbnApiService.php` — Exact URLs and methods the tool calls for PBN domains  
 - WP Link Manager service: `app/Services/WpApiService.php` — Same contract for WordPress plugin sites (`wp-json/pbn-hidden-link-manager/v1`)

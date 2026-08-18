@@ -206,17 +206,50 @@ class WpApiService
     }
 
     /**
-     * @return array{ok: bool, error: string|null}
+     * @return array{ok: bool, error: string|null, block_inspect: bool|null, block_inspect_field: bool, show_hidden_links: bool|null, http_status: int|null}
      */
-    public function ping(WpSite $site): array
+    public function fetchStatus(WpSite $site): array
     {
-        return $this->pingSite($site->api_url, $this->apiKeyFor($site));
+        return $this->fetchStatusFromUrl($site->api_url, $this->apiKeyFor($site));
     }
 
     /**
      * @return array{ok: bool, error: string|null}
      */
-    private function pingSite(string $apiUrl, string $apiKey): array
+    public function ping(WpSite $site): array
+    {
+        $result = $this->fetchStatus($site);
+
+        return [
+            'ok' => $result['ok'],
+            'error' => $result['error'],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function toggleInspect(WpSite $site, bool $blockInspect): array
+    {
+        return $this->callWithApiUrlFallback($site->api_url, function (string $apiBase) use ($site, $blockInspect) {
+            $url = rtrim($apiBase, '/').'/hidden-links/toggle-inspect';
+            $this->assertSafeApiUrl($apiBase);
+            $response = $this->http()
+                ->withHeaders($this->authHeaders($site))
+                ->post($url, ['block_inspect' => $blockInspect]);
+
+            if ($response->failed()) {
+                throw new \RuntimeException('API Error '.$response->status().': '.$this->truncateResponseBody($response->body()));
+            }
+
+            return $response->json() ?? [];
+        });
+    }
+
+    /**
+     * @return array{ok: bool, error: string|null, block_inspect: bool|null, block_inspect_field: bool, show_hidden_links: bool|null, http_status: int|null}
+     */
+    private function fetchStatusFromUrl(string $apiUrl, string $apiKey): array
     {
         $headers = ['Accept' => 'application/json'];
         if ($apiKey !== '') {
@@ -235,7 +268,28 @@ class WpApiService
                 $response = $this->http()->withHeaders($headers)->get($url);
 
                 if ($response->successful()) {
-                    return ['ok' => true, 'error' => null];
+                    $decoded = $response->json();
+                    $blockInspect = null;
+                    $blockInspectField = false;
+                    $showHiddenLinks = null;
+                    if (is_array($decoded)) {
+                        if (array_key_exists('block_inspect', $decoded)) {
+                            $blockInspectField = true;
+                            $blockInspect = (bool) $decoded['block_inspect'];
+                        }
+                        if (array_key_exists('show_hidden_links', $decoded)) {
+                            $showHiddenLinks = (bool) $decoded['show_hidden_links'];
+                        }
+                    }
+
+                    return [
+                        'ok' => true,
+                        'error' => null,
+                        'block_inspect' => $blockInspect,
+                        'block_inspect_field' => $blockInspectField,
+                        'show_hidden_links' => $showHiddenLinks,
+                        'http_status' => $response->status(),
+                    ];
                 }
 
                 $status = $response->status();
@@ -252,24 +306,52 @@ class WpApiService
                     $error = 'Invalid or missing API key. Set the site API key in Edit.';
                 }
 
-                return ['ok' => false, 'error' => $error];
+                return [
+                    'ok' => false,
+                    'error' => $error,
+                    'block_inspect' => null,
+                    'block_inspect_field' => false,
+                    'show_hidden_links' => null,
+                    'http_status' => $status,
+                ];
             } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 $error = 'Connection failed: '.$e->getMessage();
                 if ($index < count($candidates) - 1 && ApiUrlHelper::shouldTryNextUrlAfterFailure($e)) {
                     continue;
                 }
 
-                return ['ok' => false, 'error' => $error];
+                return [
+                    'ok' => false,
+                    'error' => $error,
+                    'block_inspect' => null,
+                    'block_inspect_field' => false,
+                    'show_hidden_links' => null,
+                    'http_status' => null,
+                ];
             } catch (\Exception $e) {
                 $error = $e->getMessage();
                 if ($index < count($candidates) - 1 && ApiUrlHelper::shouldTryNextUrlAfterFailure($e)) {
                     continue;
                 }
 
-                return ['ok' => false, 'error' => $error];
+                return [
+                    'ok' => false,
+                    'error' => $error,
+                    'block_inspect' => null,
+                    'block_inspect_field' => false,
+                    'show_hidden_links' => null,
+                    'http_status' => null,
+                ];
             }
         }
 
-        return ['ok' => false, 'error' => 'Health check failed for all API URL variants.'];
+        return [
+            'ok' => false,
+            'error' => 'Health check failed for all API URL variants.',
+            'block_inspect' => null,
+            'block_inspect_field' => false,
+            'show_hidden_links' => null,
+            'http_status' => null,
+        ];
     }
 }

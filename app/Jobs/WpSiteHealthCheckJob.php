@@ -55,7 +55,7 @@ class WpSiteHealthCheckJob implements ShouldQueue
 
     private function runHealthCheck(WpApiService $api, WpSite $site): void
     {
-        $result = $api->ping($site);
+        $result = $api->fetchStatus($site);
         if (! ($result['ok'] ?? false)) {
             $errorMessage = $result['error'] ?? 'Health check failed';
             $site->update([
@@ -73,12 +73,22 @@ class WpSiteHealthCheckJob implements ShouldQueue
             throw new \RuntimeException($errorMessage);
         }
 
-        // No error from API → mark as active and clear last error.
-        $site->update([
+        $updates = [
             'status' => 'active',
             'last_checked_at' => now(),
             'last_health_error' => null,
-        ]);
+        ];
+
+        if (array_key_exists('block_inspect', $result) && $result['block_inspect'] !== null) {
+            $updates['block_inspect'] = (bool) $result['block_inspect'];
+            $updates['block_inspect_synced_at'] = now();
+        }
+
+        if (! empty($result['block_inspect_field'])) {
+            $updates['block_inspect_supported'] = true;
+        }
+
+        $site->update($updates);
     }
 
     /**

@@ -17,11 +17,17 @@ class WpSite extends Model
         'status',
         'last_checked_at',
         'last_health_error',
+        'block_inspect',
+        'block_inspect_synced_at',
+        'block_inspect_supported',
         'notes',
     ];
 
     protected $casts = [
         'last_checked_at' => 'datetime',
+        'block_inspect' => 'boolean',
+        'block_inspect_synced_at' => 'datetime',
+        'block_inspect_supported' => 'boolean',
     ];
 
     public function user(): BelongsTo

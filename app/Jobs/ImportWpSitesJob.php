@@ -56,7 +56,7 @@ class ImportWpSitesJob implements ShouldQueue
                     continue;
                 }
 
-                $apiUrl = ApiUrlHelper::normalizeForStorage((string) $apiUrl);
+                $apiUrl = ApiUrlHelper::restApiBase((string) $apiUrl);
                 if (SafeApiUrl::validate($apiUrl) !== null) {
                     $skipped++;
                     continue;

@@ -78,7 +78,7 @@
         {{-- WordPress --}}
         <x-sidebar-section label="WordPress" x-show="!sidebarCollapsed" />
         <div class="{{ $navSectionDivider }}" x-show="sidebarCollapsed"></div>
-        <a href="{{ route('wp-sites.index') }}" class="{{ $navBase }} {{ $navHover }} {{ request()->routeIs('wp-sites.*') ? $navActive : '' }}" :class="sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3'">
+        <a href="{{ route('wp-sites.index') }}" class="{{ $navBase }} {{ $navHover }} {{ request()->routeIs('wp-sites.index', 'wp-sites.edit', 'wp-sites.export') ? $navActive : '' }}" :class="sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3'">
             <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
             </svg>
@@ -95,6 +95,12 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
             </svg>
             <span class="truncate" x-show="!sidebarCollapsed">Create WP Batch</span>
+        </a>
+        <a href="{{ route('wp-sites.block-inspect') }}" class="{{ $navBase }} {{ $navHover }} {{ request()->routeIs('wp-sites.block-inspect*') ? $navActive : '' }}" :class="sidebarCollapsed ? 'justify-center px-0' : 'gap-3 px-3'">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+            </svg>
+            <span class="truncate" x-show="!sidebarCollapsed">Block Inspect</span>
         </a>
 
         {{-- Account --}}
@@ -154,6 +160,7 @@
         <a href="{{ route('wp-sites.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-r-lg text-slate-300 hover:bg-slate-800/80 hover:text-white transition-all">WP Sites</a>
         <a href="{{ route('wp-batches.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-r-lg text-slate-300 hover:bg-slate-800/80 hover:text-white transition-all">WP Batches</a>
         <a href="{{ route('wp-batches.create') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-r-lg text-slate-300 hover:bg-slate-800/80 hover:text-white transition-all">Create WP Batch</a>
+        <a href="{{ route('wp-sites.block-inspect') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-r-lg text-slate-300 hover:bg-slate-800/80 hover:text-white transition-all">Block Inspect</a>
 
         <x-sidebar-section label="Account" />
         <a href="{{ route('profile.edit') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-r-lg text-slate-300 hover:bg-slate-800/80 hover:text-white transition-all">Profile</a>

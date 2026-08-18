@@ -73,12 +73,12 @@
         <div class="card-hover animate-in animate-in-5 bg-white/90 backdrop-blur rounded-2xl border border-purple-100 p-6 shadow-md hover:border-purple-200">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-sm font-medium text-slate-500 uppercase tracking-wide">Total Campaigns</p>
-                    <p class="text-3xl font-bold text-slate-800 mt-2">{{ $stats['campaigns'] ?? 0 }}</p>
+                    <p class="text-sm font-medium text-slate-500 uppercase tracking-wide">Target Domains</p>
+                    <p class="text-3xl font-bold text-slate-800 mt-2">{{ $stats['campaign_domains'] ?? 0 }}</p>
                 </div>
-                <div class="card-icon w-14 h-14 rounded-2xl bg-purple-100 flex items-center justify-center shadow-inner">
-                    <svg class="w-7 h-7 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+                <div class="card-icon w-14 h-14 rounded-2xl bg-indigo-100 flex items-center justify-center shadow-inner">
+                    <svg class="w-7 h-7 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
                 </div>
             </div>
@@ -86,12 +86,12 @@
         <div class="card-hover animate-in animate-in-6 bg-white/90 backdrop-blur rounded-2xl border border-purple-100 p-6 shadow-md hover:border-purple-200">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-sm font-medium text-slate-500 uppercase tracking-wide">Target Domains</p>
-                    <p class="text-3xl font-bold text-slate-800 mt-2">{{ $stats['campaign_domains'] ?? 0 }}</p>
+                    <p class="text-sm font-medium text-slate-500 uppercase tracking-wide">Total Campaigns</p>
+                    <p class="text-3xl font-bold text-slate-800 mt-2">{{ $stats['campaigns'] ?? 0 }}</p>
                 </div>
-                <div class="card-icon w-14 h-14 rounded-2xl bg-indigo-100 flex items-center justify-center shadow-inner">
-                    <svg class="w-7 h-7 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                <div class="card-icon w-14 h-14 rounded-2xl bg-purple-100 flex items-center justify-center shadow-inner">
+                    <svg class="w-7 h-7 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
                     </svg>
                 </div>
             </div>
@@ -124,8 +124,68 @@
         </div>
     </div>
 
+    <div class="mt-8 mb-6">
+        <h3 class="text-xl font-bold text-slate-800">WordPress Statistics</h3>
+        <p class="text-slate-600 mt-1 text-sm">Manage your WordPress sites and link batches</p>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+        <div class="card-hover animate-in animate-in-9 bg-white/90 backdrop-blur rounded-2xl border border-sky-100 p-6 shadow-md hover:border-sky-200">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-slate-500 uppercase tracking-wide">Total WP Sites</p>
+                    <p class="text-3xl font-bold text-slate-800 mt-2">{{ $stats['wp_sites'] ?? 0 }}</p>
+                </div>
+                <div class="card-icon w-14 h-14 rounded-2xl bg-sky-100 flex items-center justify-center shadow-inner">
+                    <svg class="w-7 h-7 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+        <div class="card-hover animate-in animate-in-10 bg-white/90 backdrop-blur rounded-2xl border border-sky-100 p-6 shadow-md hover:border-sky-200">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-slate-500 uppercase tracking-wide">Total WP Batches</p>
+                    <p class="text-3xl font-bold text-slate-800 mt-2">{{ $stats['wp_batches'] ?? 0 }}</p>
+                </div>
+                <div class="card-icon w-14 h-14 rounded-2xl bg-cyan-100 flex items-center justify-center shadow-inner">
+                    <svg class="w-7 h-7 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+        <div class="card-hover animate-in animate-in-11 bg-white/90 backdrop-blur rounded-2xl border border-sky-100 p-6 shadow-md hover:border-sky-200">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-slate-500 uppercase tracking-wide">WP Links Posted</p>
+                    <p class="text-3xl font-bold text-slate-800 mt-2">{{ $stats['wp_links_posted'] ?? 0 }}</p>
+                </div>
+                <div class="card-icon w-14 h-14 rounded-2xl bg-sky-200/80 flex items-center justify-center shadow-inner">
+                    <svg class="w-7 h-7 text-sky-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+        <div class="card-hover animate-in animate-in-12 bg-white/90 backdrop-blur rounded-2xl border border-sky-100 p-6 shadow-md hover:border-sky-200">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-slate-500 uppercase tracking-wide">Active WP Batches</p>
+                    <p class="text-3xl font-bold text-slate-800 mt-2">{{ $stats['active_wp_batches'] ?? 0 }}</p>
+                </div>
+                <div class="card-icon w-14 h-14 rounded-2xl bg-teal-100 flex items-center justify-center shadow-inner">
+                    <svg class="w-7 h-7 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-        <div class="animate-in animate-in-9 bg-white/90 backdrop-blur rounded-2xl border border-orange-100 p-6 shadow-md">
+        <div class="animate-in animate-in-13 bg-white/90 backdrop-blur rounded-2xl border border-orange-100 p-6 shadow-md">
             <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2">
                 <span class="w-1 h-6 rounded-full bg-orange-500"></span>
                 Recent Batches
@@ -150,7 +210,7 @@
                 @endforelse
             </div>
         </div>
-        <div class="animate-in animate-in-10 bg-white/90 backdrop-blur rounded-2xl border border-purple-100 p-6 shadow-md">
+        <div class="animate-in animate-in-14 bg-white/90 backdrop-blur rounded-2xl border border-purple-100 p-6 shadow-md">
             <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2">
                 <span class="w-1 h-6 rounded-full bg-purple-500"></span>
                 Recent Campaigns
@@ -175,7 +235,7 @@
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-        <div class="animate-in animate-in-11 bg-white/90 backdrop-blur rounded-2xl border border-orange-100 p-6 shadow-md">
+        <div class="animate-in animate-in-15 bg-white/90 backdrop-blur rounded-2xl border border-orange-100 p-6 shadow-md">
             <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2">
                 <span class="w-1 h-6 rounded-full bg-orange-500"></span>
                 Batch Quick Actions
@@ -207,7 +267,7 @@
                 </a>
             </div>
         </div>
-        <div class="animate-in animate-in-12 bg-white/90 backdrop-blur rounded-2xl border border-purple-100 p-6 shadow-md">
+        <div class="animate-in animate-in-16 bg-white/90 backdrop-blur rounded-2xl border border-purple-100 p-6 shadow-md">
             <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2">
                 <span class="w-1 h-6 rounded-full bg-purple-500"></span>
                 Campaign Quick Actions
@@ -236,6 +296,63 @@
                         <p class="text-sm text-slate-500">Add or import campaign domains</p>
                     </div>
                     <svg class="w-5 h-5 text-purple-400 group-hover:text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        <div class="animate-in animate-in-17 bg-white/90 backdrop-blur rounded-2xl border border-sky-100 p-6 shadow-md">
+            <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <span class="w-1 h-6 rounded-full bg-sky-500"></span>
+                Recent WP Batches
+            </h3>
+            <div class="space-y-3">
+                @forelse($recentWpBatches ?? [] as $wpBatch)
+                    <a href="{{ route('wp-batches.show', $wpBatch) }}" class="block p-4 rounded-xl border border-sky-50 hover:border-sky-200 hover:bg-sky-50/70 transition-all duration-300 group">
+                        <div class="flex justify-between items-center">
+                            <span class="font-medium text-slate-800 group-hover:text-sky-700 transition-colors">{{ $wpBatch->name }}</span>
+                            <span class="px-3 py-1 text-xs font-medium rounded-full {{ $wpBatch->status === 'completed' ? 'bg-sky-100 text-sky-700' : ($wpBatch->status === 'processing' ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-600') }}">{{ ucfirst($wpBatch->status) }}</span>
+                        </div>
+                        <p class="text-sm text-slate-500 mt-1">{{ $wpBatch->success_count ?? 0 }} / {{ $wpBatch->totalExpectedPosts() }} links posted</p>
+                    </a>
+                @empty
+                    <div class="text-center py-10 text-slate-500 rounded-xl bg-sky-50/50 border border-sky-100">
+                        <p>No WP batches yet.</p>
+                        <a href="{{ route('wp-batches.create') }}" class="inline-block mt-2 text-sky-600 font-medium hover:text-sky-700 hover:underline">Create your first WP batch</a>
+                    </div>
+                @endforelse
+            </div>
+        </div>
+        <div class="animate-in animate-in-18 bg-white/90 backdrop-blur rounded-2xl border border-sky-100 p-6 shadow-md">
+            <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <span class="w-1 h-6 rounded-full bg-sky-500"></span>
+                WordPress Quick Actions
+            </h3>
+            <div class="space-y-3">
+                <a href="{{ route('wp-batches.create') }}" class="flex items-center gap-4 p-4 rounded-xl border border-sky-100 hover:border-sky-200 hover:bg-sky-50/70 transition-all duration-200 group">
+                    <div class="w-12 h-12 rounded-xl bg-sky-100 flex items-center justify-center group-hover:bg-sky-200 group-hover:scale-105 transition-all duration-200">
+                        <svg class="w-6 h-6 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1">
+                        <p class="font-medium text-slate-800 group-hover:text-sky-700">Create WP Batch</p>
+                        <p class="text-sm text-slate-500">Post links across your WordPress sites</p>
+                    </div>
+                    <svg class="w-5 h-5 text-sky-400 group-hover:text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </a>
+                <a href="{{ route('wp-sites.index') }}" class="flex items-center gap-4 p-4 rounded-xl border border-sky-100 hover:border-sky-200 hover:bg-sky-50/70 transition-all duration-200 group">
+                    <div class="w-12 h-12 rounded-xl bg-cyan-100 flex items-center justify-center group-hover:bg-cyan-200 group-hover:scale-105 transition-all duration-200">
+                        <svg class="w-6 h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1">
+                        <p class="font-medium text-slate-800 group-hover:text-sky-700">Manage WP Sites</p>
+                        <p class="text-sm text-slate-500">Add or bulk import WordPress sites</p>
+                    </div>
+                    <svg class="w-5 h-5 text-sky-400 group-hover:text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                 </a>
             </div>
         </div>

@@ -22,6 +22,19 @@ class ApiUrlHelper
         return rtrim($url, '/');
     }
 
+    /**
+     * REST API base without trailing /status (health checks may store or accept .../v1/status).
+     */
+    public static function restApiBase(string $apiUrl): string
+    {
+        $base = self::normalizeForStorage($apiUrl);
+        if (preg_match('#/status$#i', $base)) {
+            $base = substr($base, 0, -7);
+        }
+
+        return rtrim($base, '/');
+    }
+
     public static function defaultScheme(): string
     {
         $scheme = strtolower((string) config('services.pbn.default_api_scheme', 'http'));
@@ -36,7 +49,7 @@ class ApiUrlHelper
      */
     public static function candidateApiUrls(string $apiUrl): array
     {
-        $apiUrl = self::normalizeForStorage($apiUrl);
+        $apiUrl = self::restApiBase($apiUrl);
         if ($apiUrl === '') {
             return [];
         }
