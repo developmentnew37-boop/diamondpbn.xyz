@@ -63,6 +63,12 @@ class PublishBatchChunkJob implements ShouldBeUnique, ShouldQueue
 
         }
 
+        if (in_array($chunk->batch->status, ['paused', 'deleting'], true)) {
+
+            return;
+
+        }
+
         if (! $this->shouldProcessChunk($chunk)) {
 
             return;

@@ -8,6 +8,7 @@ use App\Models\Domain;
 use App\Models\DomainImport;
 use App\Rules\SafeApiUrl;
 use App\Support\ApiUrlHelper;
+use App\Support\Workspace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -21,7 +22,7 @@ class DomainController extends Controller
             $statusFilter = 'all';
         }
 
-        $baseQuery = Domain::where('user_id', auth()->id());
+        $baseQuery = Domain::where('user_id', Workspace::ownerId());
         if ($search !== '') {
             $term = '%'.$search.'%';
             $baseQuery->where(function ($q) use ($term) {
@@ -58,7 +59,7 @@ class DomainController extends Controller
             ->paginate(50)
             ->withQueryString();
 
-        $imports = DomainImport::where('user_id', auth()->id())
+        $imports = DomainImport::where('user_id', Workspace::ownerId())
             ->where(function ($q) {
                 $q->whereNull('type')->orWhere('type', '!=', 'campaign');
             })
@@ -78,7 +79,7 @@ class DomainController extends Controller
 
     public function store(Request $request)
     {
-        $userId = auth()->id();
+        $userId = Workspace::ownerId();
         $validated = $request->validate([
             'domain' => 'required|string',
             'api_url' => ['required', 'url', new SafeApiUrl()],
@@ -106,7 +107,7 @@ class DomainController extends Controller
 
     public function edit(Domain $domain)
     {
-        if ($domain->user_id !== auth()->id()) {
+        if ($domain->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         return view('domains.edit', compact('domain'));
@@ -118,7 +119,7 @@ class DomainController extends Controller
 
         $path = $request->file('file')->store('imports');
         $import = DomainImport::create([
-            'user_id' => auth()->id(),
+            'user_id' => Workspace::ownerId(),
             'filename' => $path, // full path (e.g. imports/ab/xyz.xlsx) - job needs it to find the file
             'status' => 'pending',
         ]);
@@ -129,7 +130,7 @@ class DomainController extends Controller
 
     public function update(Request $request, Domain $domain)
     {
-        if ($domain->user_id !== auth()->id()) {
+        if ($domain->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         $validated = $request->validate([
@@ -139,7 +140,7 @@ class DomainController extends Controller
             'notes' => 'nullable|string',
         ]);
         $normalized = Domain::normalizeDomain((string) $validated['domain']);
-        $exists = Domain::where('user_id', auth()->id())
+        $exists = Domain::where('user_id', Workspace::ownerId())
             ->where('domain_normalized', $normalized)
             ->where('id', '!=', $domain->id)
             ->exists();
@@ -156,7 +157,7 @@ class DomainController extends Controller
 
     public function destroy(Domain $domain)
     {
-        if ($domain->user_id !== auth()->id()) {
+        if ($domain->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         $domain->delete();
@@ -165,7 +166,7 @@ class DomainController extends Controller
 
     public function recheck(Domain $domain)
     {
-        if ($domain->user_id !== auth()->id()) {
+        if ($domain->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         DomainHealthCheckJob::dispatch($domain);
@@ -180,7 +181,7 @@ class DomainController extends Controller
             $statusFilter = 'all';
         }
 
-        $baseQuery = Domain::where('user_id', auth()->id());
+        $baseQuery = Domain::where('user_id', Workspace::ownerId());
         if ($search !== '') {
             $term = '%'.$search.'%';
             $baseQuery->where(function ($q) use ($term) {
@@ -224,7 +225,7 @@ class DomainController extends Controller
             'domain_ids.*' => 'integer',
         ]);
 
-        $ids = Domain::where('user_id', auth()->id())
+        $ids = Domain::where('user_id', Workspace::ownerId())
             ->whereIn('id', $validated['domain_ids'])
             ->pluck('id');
 
@@ -232,7 +233,7 @@ class DomainController extends Controller
             return back()->with('error', 'No matching domains found to delete. Select domains from the list and try again.');
         }
 
-        $deleted = Domain::where('user_id', auth()->id())
+        $deleted = Domain::where('user_id', Workspace::ownerId())
             ->whereIn('id', $ids)
             ->delete();
 
@@ -241,7 +242,7 @@ class DomainController extends Controller
 
     public function destroyImport(DomainImport $domainImport)
     {
-        if ($domainImport->user_id !== auth()->id()) {
+        if ($domainImport->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         if (($domainImport->type ?? null) === 'campaign') {
@@ -257,14 +258,14 @@ class DomainController extends Controller
 
     public function destroyImportDomains(DomainImport $domainImport)
     {
-        if ($domainImport->user_id !== auth()->id()) {
+        if ($domainImport->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         if (($domainImport->type ?? null) === 'campaign') {
             return back()->with('error', 'This is a campaign import record. Use Target Domains to delete imported domains.');
         }
 
-        $deleted = Domain::where('user_id', auth()->id())
+        $deleted = Domain::where('user_id', Workspace::ownerId())
             ->where('domain_import_id', $domainImport->id)
             ->delete();
 
@@ -288,7 +289,7 @@ class DomainController extends Controller
             $statusFilter = 'all';
         }
 
-        $baseQuery = Domain::where('user_id', auth()->id());
+        $baseQuery = Domain::where('user_id', Workspace::ownerId());
         if ($search !== '') {
             $term = '%'.$search.'%';
             $baseQuery->where(function ($q) use ($term) {

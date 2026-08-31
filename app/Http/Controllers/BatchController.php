@@ -13,6 +13,9 @@ use App\Models\Domain;
 use App\Models\Link;
 use App\Services\PbnApiService;
 use App\Support\PbnSettings;
+use App\Support\ReplaceFailedChunkLink;
+use App\Support\UnicodeUrl;
+use App\Support\Workspace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -40,7 +43,7 @@ class BatchController extends Controller
         $search = trim((string) $request->input('search', ''));
         $search = substr($search, 0, 100); // max 100 chars
 
-        $query = Batch::where('user_id', auth()->id());
+        $query = Workspace::scopeOwnPosting(Batch::query());
 
         if ($search !== '') {
             // 2. Escape SQL wildcard characters to prevent wildcard abuse
@@ -72,7 +75,7 @@ class BatchController extends Controller
 
     public function create()
     {
-        $domains = Domain::where('user_id', auth()->id())->where('status', 'active')->get();
+        $domains = Domain::where('user_id', Workspace::ownerId())->where('status', 'active')->get();
 
         return view('batches.create', compact('domains'));
     }
@@ -108,7 +111,7 @@ class BatchController extends Controller
             }
             $linksInput = is_array($linksInput) ? $linksInput : [];
         }
-        $request->merge(['links' => $linksInput]);
+        $request->merge(['links' => UnicodeUrl::normalizePayload($linksInput)]);
 
         $validated = $request->validate([
             'name' => 'required|string',
@@ -121,7 +124,7 @@ class BatchController extends Controller
             'links.*.no_follow' => 'nullable|boolean',
         ]);
 
-        $domainIds = array_values(array_unique(array_filter($validated['domain_ids'], fn ($id) => Domain::where('id', $id)->where('user_id', auth()->id())->exists())));
+        $domainIds = array_values(array_unique(array_filter($validated['domain_ids'], fn ($id) => Domain::where('id', $id)->where('user_id', Workspace::ownerId())->exists())));
         if (empty($domainIds)) {
             return back()->withErrors(['domain_ids' => 'Select at least one domain you own.'])->withInput();
         }
@@ -180,9 +183,7 @@ class BatchController extends Controller
 
     public function show(Batch $batch)
     {
-        if ($batch->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($batch->user_id);
 
         $domainStats = $this->buildDomainStatsForBatch($batch);
         $problemDomainCount = collect($domainStats)->where('is_problem', true)->count();
@@ -210,9 +211,7 @@ class BatchController extends Controller
 
     public function exportDomains(Batch $batch, Request $request)
     {
-        if ($batch->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($batch->user_id);
 
         $filter = $request->query('filter', 'all');
         if (! in_array($filter, ['all', 'success', 'pending', 'failed'], true)) {
@@ -266,9 +265,8 @@ class BatchController extends Controller
     /** View all links and chunks for a specific domain in a batch */
     public function showDomain(Batch $batch, Domain $domain)
     {
-        if ($batch->user_id !== auth()->id() || $domain->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($batch->user_id);
+        Workspace::assertInventoryOwned($domain->user_id);
 
         $chunks = BatchDomainChunk::where('batch_id', $batch->id)
             ->where('domain_id', $domain->id)
@@ -295,6 +293,8 @@ class BatchController extends Controller
                     'error' => $result['error'] ?? $result['error_message'] ?? null,
                     'chunk_index' => $chunk->chunk_index,
                     'chunk_id' => $chunk->id,
+                    'chunk_status' => $chunk->status,
+                    'link_index' => $i,
                 ];
             }
         }
@@ -304,11 +304,39 @@ class BatchController extends Controller
         return view('batches.domain', compact('batch', 'domain', 'chunks', 'linksWithStatus', 'batchLinks'));
     }
 
+    public function pause(Batch $batch)
+    {
+        Workspace::assertCanManageRun($batch->user_id);
+
+        if (! $batch->canPause()) {
+            return back()->with('error', 'This batch cannot be paused in its current state.');
+        }
+
+        $batch->update(['status' => 'paused']);
+
+        return back()->with('success', 'Batch paused. Remaining queued posts will wait until you resume. One chunk already in progress may still finish.');
+    }
+
+    public function resume(Batch $batch)
+    {
+        Workspace::assertCanManageRun($batch->user_id);
+
+        if (! $batch->canResume()) {
+            return back()->with('error', 'This batch is not paused.');
+        }
+
+        $batch->update(['status' => 'processing', 'started_at' => $batch->started_at ?? now()]);
+
+        return $this->publishPending($batch);
+    }
+
     /** Queue publish jobs for all chunks that are still pending (fixes stuck batches). */
     public function publishPending(Batch $batch)
     {
-        if ($batch->user_id !== auth()->id()) {
-            abort(403);
+        Workspace::assertCanManageRun($batch->user_id);
+
+        if ($batch->status === 'deleting') {
+            return back()->with('info', 'Cannot publish while batch deletion is in progress.');
         }
 
         // Some chunks can get "stuck" in processing (worker killed mid-request, timeout, etc.).
@@ -335,6 +363,8 @@ class BatchController extends Controller
             ->get();
 
         if ($candidates->isEmpty()) {
+            $batch->recalculateCounters();
+
             return back()->with('info', 'No pending/stale chunks to publish.');
         }
 
@@ -459,6 +489,7 @@ class BatchController extends Controller
                 'links_payload',
                 'results_payload',
                 'failed_count',
+                'status',
             ]);
 
         foreach ($query->cursor() as $chunk) {
@@ -473,6 +504,9 @@ class BatchController extends Controller
                     'url' => $linkData['url'] ?? '-',
                     'keyword' => $linkData['keyword'] ?? '-',
                     'error_message' => $r['error'] ?? $r['error_message'] ?? 'Failed',
+                    'chunk_id' => $chunk->id,
+                    'link_index' => $i,
+                    'chunk_status' => $chunk->status,
                 ];
                 if (count($failed) >= $limit) {
                     return $failed;
@@ -485,7 +519,8 @@ class BatchController extends Controller
 
     public function destroyLink(Batch $batch, Link $link)
     {
-        if ($batch->user_id !== auth()->id() || $link->batch_id !== $batch->id) {
+        Workspace::assertCanManageRun($batch->user_id);
+        if ($link->batch_id !== $batch->id) {
             abort(403);
         }
 
@@ -500,10 +535,45 @@ class BatchController extends Controller
         return back()->with('success', 'Link removal queued. The link will be deleted from all remote sites first, then removed from this batch. Run the queue worker (queue: remove_link_from_batch).');
     }
 
+    public function replaceFailedLink(Request $request, Batch $batch)
+    {
+        Workspace::assertCanManageRun($batch->user_id);
+
+        $request->merge([
+            'url' => UnicodeUrl::normalize((string) $request->input('url')),
+        ]);
+
+        $validated = $request->validate([
+            'chunk_id' => 'required|integer',
+            'link_index' => 'required|integer|min:0',
+            'url' => 'required|url|max:2048',
+            'keyword' => 'required|string',
+        ]);
+
+        $chunk = BatchDomainChunk::where('batch_id', $batch->id)
+            ->where('id', $validated['chunk_id'])
+            ->firstOrFail();
+
+        try {
+            ReplaceFailedChunkLink::update(
+                $chunk,
+                (int) $validated['link_index'],
+                $validated['url'],
+                $validated['keyword']
+            );
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', 'Failed link updated. Use Retry failed, then Publish pending, to post the new URL.');
+    }
+
     public function retryFailed(Batch $batch)
     {
-        if ($batch->user_id !== auth()->id()) {
-            abort(403);
+        Workspace::assertCanManageRun($batch->user_id);
+
+        if ($batch->status === 'paused') {
+            return back()->with('error', 'Resume the batch before retrying failed links.');
         }
 
         $chunks = BatchDomainChunk::where('batch_id', $batch->id)->where('failed_count', '>', 0)->get();
@@ -566,9 +636,8 @@ class BatchController extends Controller
 
     public function destroyDomain(Batch $batch, Domain $domain)
     {
-        if ($batch->user_id !== auth()->id() || $domain->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($batch->user_id);
+        Workspace::assertInventoryOwned($domain->user_id);
 
         if ($batch->status === 'deleting') {
             return back()->with('info', 'Cannot remove domains while batch deletion is in progress.');
@@ -584,9 +653,7 @@ class BatchController extends Controller
 
     public function removeProblemDomains(Batch $batch)
     {
-        if ($batch->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($batch->user_id);
 
         if ($batch->status === 'deleting') {
             return back()->with('info', 'Cannot remove domains while batch deletion is in progress.');
@@ -612,7 +679,7 @@ class BatchController extends Controller
             return 0;
         }
 
-        $ownedIds = Domain::where('user_id', auth()->id())
+        $ownedIds = Domain::where('user_id', Workspace::ownerId())
             ->whereIn('id', $domainIds)
             ->pluck('id')
             ->all();
@@ -681,9 +748,7 @@ class BatchController extends Controller
 
     public function destroy(Batch $batch)
     {
-        if ($batch->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($batch->user_id);
 
         $hasDomainChunks = BatchDomainChunk::where('batch_id', $batch->id)->exists();
 

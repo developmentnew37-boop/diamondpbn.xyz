@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ProfileUpdateRequest;
+use App\Models\User;
+use App\Support\Workspace;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -47,6 +49,10 @@ class ProfileController extends Controller
         ]);
 
         $user = $request->user();
+
+        if ((int) $user->id === Workspace::ownerId() && User::query()->where('id', '!=', $user->id)->exists()) {
+            return back()->with('error', 'Cannot delete this account while other staff exist. It owns the shared domains and sites.');
+        }
 
         Auth::logout();
 

@@ -48,6 +48,10 @@ class PublishCampaignChunkJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
+        if (in_array($chunk->campaign->status, ['paused', 'deleting'], true)) {
+            return;
+        }
+
         if (! $this->shouldProcessChunk($chunk)) {
             return;
         }

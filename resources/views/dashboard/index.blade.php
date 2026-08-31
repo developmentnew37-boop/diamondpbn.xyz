@@ -195,7 +195,7 @@
                     <a href="{{ route('batches.show', $batch) }}" class="block p-4 rounded-xl border border-orange-50 hover:border-orange-200 hover:bg-orange-50/70 transition-all duration-300 group">
                         <div class="flex justify-between items-center">
                             <span class="font-medium text-slate-800 group-hover:text-orange-700 transition-colors">{{ $batch->name }}</span>
-                            <span class="px-3 py-1 text-xs font-medium rounded-full {{ $batch->status === 'completed' ? 'bg-orange-100 text-orange-700' : ($batch->status === 'processing' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600') }}">{{ ucfirst($batch->status) }}</span>
+                            <span class="px-3 py-1 text-xs font-medium rounded-full {{ $batch->status === 'completed' ? 'bg-orange-100 text-orange-700' : ($batch->status === 'processing' ? 'bg-amber-100 text-amber-700' : ($batch->status === 'paused' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600')) }}">{{ ucwords(str_replace('_', ' ', $batch->status)) }}</span>
                         </div>
                         @php
                             $batchTotalPosts = ($batch->total_links ?? 0) * ($batch->total_domains ?? 0);
@@ -220,7 +220,7 @@
                     <a href="{{ route('campaigns.show', $campaign) }}" class="block p-4 rounded-xl border border-purple-50 hover:border-purple-200 hover:bg-purple-50/70 transition-all duration-300 group">
                         <div class="flex justify-between items-center">
                             <span class="font-medium text-slate-800 group-hover:text-purple-700 transition-colors">{{ $campaign->name }}</span>
-                            <span class="px-3 py-1 text-xs font-medium rounded-full {{ $campaign->status === 'completed' ? 'bg-emerald-100 text-emerald-700' : ($campaign->status === 'processing' ? 'bg-amber-100 text-amber-700' : ($campaign->status === 'partial' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600')) }}">{{ ucfirst($campaign->status) }}</span>
+                            <span class="px-3 py-1 text-xs font-medium rounded-full {{ $campaign->status === 'completed' ? 'bg-emerald-100 text-emerald-700' : ($campaign->status === 'processing' ? 'bg-amber-100 text-amber-700' : ($campaign->status === 'paused' ? 'bg-blue-100 text-blue-700' : ($campaign->status === 'partial' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'))) }}">{{ ucwords(str_replace('_', ' ', $campaign->status)) }}</span>
                         </div>
                         <p class="text-sm text-slate-500 mt-1">{{ $campaign->success_count ?? 0 }} / {{ $campaign->total_distributed_links ?? 0 }} links distributed</p>
                     </a>
@@ -253,6 +253,7 @@
                     </div>
                     <svg class="w-5 h-5 text-orange-400 group-hover:text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                 </a>
+                @if(auth()->user()->isSuperAdmin())
                 <a href="{{ route('domains.index') }}" class="flex items-center gap-4 p-4 rounded-xl border border-orange-100 hover:border-orange-200 hover:bg-orange-50/70 transition-all duration-200 group">
                     <div class="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center group-hover:bg-amber-200 group-hover:scale-105 transition-all duration-200">
                         <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -265,6 +266,7 @@
                     </div>
                     <svg class="w-5 h-5 text-orange-400 group-hover:text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                 </a>
+                @endif
             </div>
         </div>
         <div class="animate-in animate-in-16 bg-white/90 backdrop-blur rounded-2xl border border-purple-100 p-6 shadow-md">
@@ -285,6 +287,7 @@
                     </div>
                     <svg class="w-5 h-5 text-purple-400 group-hover:text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                 </a>
+                @if(auth()->user()->isSuperAdmin())
                 <a href="{{ route('campaign-domains.index') }}" class="flex items-center gap-4 p-4 rounded-xl border border-purple-100 hover:border-purple-200 hover:bg-purple-50/70 transition-all duration-200 group">
                     <div class="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center group-hover:bg-indigo-200 group-hover:scale-105 transition-all duration-200">
                         <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -297,6 +300,7 @@
                     </div>
                     <svg class="w-5 h-5 text-purple-400 group-hover:text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                 </a>
+                @endif
             </div>
         </div>
     </div>
@@ -312,7 +316,7 @@
                     <a href="{{ route('wp-batches.show', $wpBatch) }}" class="block p-4 rounded-xl border border-sky-50 hover:border-sky-200 hover:bg-sky-50/70 transition-all duration-300 group">
                         <div class="flex justify-between items-center">
                             <span class="font-medium text-slate-800 group-hover:text-sky-700 transition-colors">{{ $wpBatch->name }}</span>
-                            <span class="px-3 py-1 text-xs font-medium rounded-full {{ $wpBatch->status === 'completed' ? 'bg-sky-100 text-sky-700' : ($wpBatch->status === 'processing' ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-600') }}">{{ ucfirst($wpBatch->status) }}</span>
+                            <span class="px-3 py-1 text-xs font-medium rounded-full {{ $wpBatch->status === 'completed' ? 'bg-sky-100 text-sky-700' : ($wpBatch->status === 'processing' ? 'bg-cyan-100 text-cyan-700' : ($wpBatch->status === 'paused' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600')) }}">{{ ucwords(str_replace('_', ' ', $wpBatch->status)) }}</span>
                         </div>
                         <p class="text-sm text-slate-500 mt-1">{{ $wpBatch->success_count ?? 0 }} / {{ $wpBatch->totalExpectedPosts() }} links posted</p>
                     </a>
@@ -342,6 +346,7 @@
                     </div>
                     <svg class="w-5 h-5 text-sky-400 group-hover:text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                 </a>
+                @if(auth()->user()->isSuperAdmin())
                 <a href="{{ route('wp-sites.index') }}" class="flex items-center gap-4 p-4 rounded-xl border border-sky-100 hover:border-sky-200 hover:bg-sky-50/70 transition-all duration-200 group">
                     <div class="w-12 h-12 rounded-xl bg-cyan-100 flex items-center justify-center group-hover:bg-cyan-200 group-hover:scale-105 transition-all duration-200">
                         <svg class="w-6 h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -354,6 +359,7 @@
                     </div>
                     <svg class="w-5 h-5 text-sky-400 group-hover:text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                 </a>
+                @endif
             </div>
         </div>
     </div>

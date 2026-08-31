@@ -12,6 +12,7 @@
                 $statusClasses = [
                     'pending' => 'bg-slate-100 text-slate-600',
                     'processing' => 'bg-amber-100 text-amber-700',
+                    'paused' => 'bg-blue-100 text-blue-700',
                     'deleting' => 'bg-sky-100 text-sky-700',
                     'completed' => 'bg-emerald-100 text-emerald-700',
                     'failed' => 'bg-red-100 text-red-700',
@@ -21,6 +22,23 @@
                 ];
             @endphp
             <span class="px-3 py-1 text-sm font-medium rounded-full {{ $statusClasses[$batch->status ?? 'pending'] ?? 'bg-slate-100 text-slate-600' }}">{{ ucwords(str_replace('_', ' ', $batch->status ?? 'pending')) }}</span>
+            @if($batch->canPause())
+            <form method="POST" action="{{ route('batches.pause', $batch) }}" class="inline" onsubmit="return confirm('Pause this batch? Remaining queued posts will wait until you resume. One chunk already in progress may still finish.');">
+                @csrf
+                <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+                    Pause
+                </button>
+            </form>
+            @elseif($batch->canResume())
+            <form method="POST" action="{{ route('batches.resume', $batch) }}" class="inline">
+                @csrf
+                <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition-colors">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    Resume
+                </button>
+            </form>
+            @endif
         </div>
         @if($batch->description ?? null)
             <p class="text-slate-500 mt-1">{{ $batch->description }}</p>
@@ -59,6 +77,12 @@
             <p class="text-sm text-violet-800 mt-1">Remote deletion finished for responsive domains. This batch now only lists domains where links could not be removed. Delete the batch again to retry remaining sites.</p>
         </div>
     @endif
+    @if(($batch->status ?? '') === 'paused')
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex items-center gap-3">
+            <svg class="w-5 h-5 text-blue-600 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+            <span class="text-blue-800 font-medium">Paused. Queued posting is stopped. Click Resume to continue remaining chunks.</span>
+        </div>
+    @endif
     @if(($batch->status ?? '') === 'processing')
         <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 flex items-center gap-3">
             <svg class="w-5 h-5 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -86,7 +110,15 @@
                         <p class="text-sm text-slate-500 mt-0.5">Remove offline or failing domains without stopping the batch on live sites.</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2 lg:justify-end">
-                        @if($hasPendingChunks ?? false)
+                        @if(($batch->status ?? '') === 'paused')
+                            <form method="POST" action="{{ route('batches.resume', $batch) }}" class="inline">
+                                @csrf
+                                <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition-colors">
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                    Resume
+                                </button>
+                            </form>
+                        @elseif($hasPendingChunks ?? false)
                             <form method="POST" action="{{ route('batches.publish-pending', $batch) }}" class="inline">
                                 @csrf
                                 <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-sky-600 text-white hover:bg-sky-700 shadow-sm transition-colors">
@@ -95,7 +127,7 @@
                                 </button>
                             </form>
                         @endif
-                        @if(($batch->failed_count ?? 0) > 0)
+                        @if(($batch->failed_count ?? 0) > 0 && ($batch->status ?? '') !== 'paused')
                             <button type="button" onclick="document.getElementById('errors-modal').classList.remove('hidden')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                                 View errors
@@ -109,7 +141,7 @@
                                 </button>
                             </form>
                         @endif
-                        @if(($problemDomainCount ?? 0) > 0)
+                        @if(auth()->user()->isSuperAdmin() && ($problemDomainCount ?? 0) > 0)
                             <form method="POST" action="{{ route('batches.domains.remove-problem', $batch) }}" class="inline" onsubmit="return confirm('Remove {{ $problemDomainCount }} problem domain(s) from this batch? Pending/failed work on those sites will stop. Links already posted will be cleaned remotely when possible.');">
                                 @csrf
                                 <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors">
@@ -183,6 +215,7 @@
                             <td class="px-6 py-4 text-right">
                                 <div class="inline-flex items-center gap-2 justify-end">
                                 <a href="{{ route('batches.show-domain', [$batch, $row['domain_id'] ?? 0]) }}" class="text-emerald-600 hover:text-emerald-700 text-sm font-medium">View</a>
+                                @if(auth()->user()->isSuperAdmin())
                                 <form method="POST" action="{{ route('batches.domains.destroy', [$batch, $row['domain_id'] ?? 0]) }}" class="inline" onsubmit="return confirm('Remove this domain from the batch? Pending posts to this site will stop.');">
                                     @csrf
                                     @method('DELETE')
@@ -190,6 +223,7 @@
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                     </button>
                                 </form>
+                                @endif
                                 </div>
                             </td>
                         </tr>
@@ -240,6 +274,7 @@
                             <td class="px-6 py-3 text-sm text-slate-800 break-all max-w-xs">{{ $link->url }}</td>
                             <td class="px-6 py-3 text-sm text-slate-700">{{ $link->keyword }}</td>
                             <td class="px-6 py-3 text-right">
+                                @if(auth()->user()->isSuperAdmin())
                                 <form method="POST" action="{{ route('batches.links.destroy', [$batch, $link]) }}" class="inline" onsubmit="return confirm('Delete this link from the batch and remove it from all remote sites?');">
                                     @csrf
                                     @method('DELETE')
@@ -247,6 +282,7 @@
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                     </button>
                                 </form>
+                                @endif
                             </td>
                         </tr>
                     @empty
@@ -284,6 +320,7 @@
                             <th class="text-left py-2 font-medium text-slate-600">Domain</th>
                             <th class="text-left py-2 font-medium text-slate-600">URL / Keyword</th>
                             <th class="text-left py-2 font-medium text-slate-600">Error</th>
+                            <th class="text-right py-2 font-medium text-slate-600">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
@@ -292,6 +329,19 @@
                                 <td class="py-2 text-slate-700">{{ $item->domain->domain ?? 'N/A' }}</td>
                                 <td class="py-2 text-slate-600">{{ Str::limit($item->url ?? $item->link->url ?? '-', 40) }} → {{ Str::limit($item->keyword ?? $item->link->keyword ?? '-', 20) }}</td>
                                 <td class="py-2 text-red-600">{{ $item->error_message ?? '-' }}</td>
+                                <td class="py-2 text-right">
+                                    @if(! in_array($item->chunk_status ?? '', ['pending', 'processing'], true) && ! empty($item->chunk_id))
+                                    <button type="button" title="Replace URL/keyword, then Retry failed"
+                                        data-chunk-id="{{ $item->chunk_id }}"
+                                        data-link-index="{{ $item->link_index }}"
+                                        data-url="{{ $item->url }}"
+                                        data-keyword="{{ $item->keyword }}"
+                                        onclick="openReplaceFailedModal(this)"
+                                        class="px-2 py-1 text-xs font-medium rounded-lg border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors">
+                                        Replace
+                                    </button>
+                                    @endif
+                                </td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -300,6 +350,7 @@
         </div>
     </div>
 </div>
+@include('partials.replace-failed-link-modal', ['action' => route('batches.replace-failed-link', $batch)])
 @endif
 @endsection
 

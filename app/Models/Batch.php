@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Batch extends Model
 {
+    use Concerns\PausesPublishing;
     use HasFactory;
 
     protected $fillable = [
@@ -117,7 +118,7 @@ class Batch extends Model
                 if (! $this->completed_at) {
                     $updates['completed_at'] = now();
                 }
-            } elseif ($processed > 0) {
+            } elseif ($processed > 0 && $this->status !== 'paused') {
                 $updates['status'] = 'processing';
             }
         }

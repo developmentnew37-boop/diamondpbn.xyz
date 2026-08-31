@@ -11,6 +11,9 @@ use App\Models\WpBatchSiteChunk;
 use App\Models\WpLink;
 use App\Models\WpSite;
 use App\Support\PbnSettings;
+use App\Support\ReplaceFailedChunkLink;
+use App\Support\UnicodeUrl;
+use App\Support\Workspace;
 use App\Support\WpBatchDeletionTracker;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -22,7 +25,7 @@ class WpBatchController extends Controller
         $search = trim((string) $request->input('search', ''));
         $search = substr($search, 0, 100);
 
-        $query = WpBatch::where('user_id', auth()->id());
+        $query = Workspace::scopeOwnPosting(WpBatch::query());
 
         if ($search !== '') {
             $escaped = str_replace(
@@ -53,7 +56,7 @@ class WpBatchController extends Controller
 
     public function create()
     {
-        $wpSites = WpSite::where('user_id', auth()->id())->where('status', 'active')->get();
+        $wpSites = WpSite::where('user_id', Workspace::ownerId())->where('status', 'active')->get();
 
         return view('wp-batches.create', compact('wpSites'));
     }
@@ -87,7 +90,7 @@ class WpBatchController extends Controller
             }
             $linksInput = is_array($linksInput) ? $linksInput : [];
         }
-        $request->merge(['links' => $linksInput]);
+        $request->merge(['links' => UnicodeUrl::normalizePayload($linksInput)]);
 
         $validated = $request->validate([
             'name' => 'required|string',
@@ -100,7 +103,7 @@ class WpBatchController extends Controller
             'links.*.no_follow' => 'nullable|boolean',
         ]);
 
-        $wpSiteIds = array_values(array_unique(array_filter($validated['wp_site_ids'], fn ($id) => WpSite::where('id', $id)->where('user_id', auth()->id())->exists())));
+        $wpSiteIds = array_values(array_unique(array_filter($validated['wp_site_ids'], fn ($id) => WpSite::where('id', $id)->where('user_id', Workspace::ownerId())->exists())));
         if (empty($wpSiteIds)) {
             return back()->withErrors(['wp_site_ids' => 'Select at least one WP site you own.'])->withInput();
         }
@@ -159,9 +162,7 @@ class WpBatchController extends Controller
 
     public function show(WpBatch $wpBatch)
     {
-        if ($wpBatch->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($wpBatch->user_id);
 
         $siteStats = $this->buildSiteStatsForBatch($wpBatch);
         $problemSiteCount = collect($siteStats)->where('is_problem', true)->count();
@@ -189,9 +190,7 @@ class WpBatchController extends Controller
 
     public function exportDomains(WpBatch $wpBatch, Request $request)
     {
-        if ($wpBatch->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($wpBatch->user_id);
 
         $filter = $request->query('filter', 'all');
         if (! in_array($filter, ['all', 'success', 'pending', 'failed'], true)) {
@@ -244,9 +243,8 @@ class WpBatchController extends Controller
 
     public function showDomain(WpBatch $wpBatch, WpSite $wpSite)
     {
-        if ($wpBatch->user_id !== auth()->id() || $wpSite->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($wpBatch->user_id);
+        Workspace::assertInventoryOwned($wpSite->user_id);
 
         $chunks = WpBatchSiteChunk::where('wp_batch_id', $wpBatch->id)
             ->where('wp_site_id', $wpSite->id)
@@ -273,6 +271,8 @@ class WpBatchController extends Controller
                     'error' => $result['error'] ?? $result['error_message'] ?? null,
                     'chunk_index' => $chunk->chunk_index,
                     'chunk_id' => $chunk->id,
+                    'chunk_status' => $chunk->status,
+                    'link_index' => $i,
                 ];
             }
         }
@@ -282,10 +282,38 @@ class WpBatchController extends Controller
         return view('wp-batches.domain', compact('wpBatch', 'wpSite', 'chunks', 'linksWithStatus', 'batchLinks'));
     }
 
+    public function pause(WpBatch $wpBatch)
+    {
+        Workspace::assertCanManageRun($wpBatch->user_id);
+
+        if (! $wpBatch->canPause()) {
+            return back()->with('error', 'This WP batch cannot be paused in its current state.');
+        }
+
+        $wpBatch->update(['status' => 'paused']);
+
+        return back()->with('success', 'WP batch paused. Remaining queued posts will wait until you resume. One chunk already in progress may still finish.');
+    }
+
+    public function resume(WpBatch $wpBatch)
+    {
+        Workspace::assertCanManageRun($wpBatch->user_id);
+
+        if (! $wpBatch->canResume()) {
+            return back()->with('error', 'This WP batch is not paused.');
+        }
+
+        $wpBatch->update(['status' => 'processing', 'started_at' => $wpBatch->started_at ?? now()]);
+
+        return $this->publishPending($wpBatch);
+    }
+
     public function publishPending(WpBatch $wpBatch)
     {
-        if ($wpBatch->user_id !== auth()->id()) {
-            abort(403);
+        Workspace::assertCanManageRun($wpBatch->user_id);
+
+        if ($wpBatch->status === 'deleting') {
+            return back()->with('info', 'Cannot publish while WP batch deletion is in progress.');
         }
 
         $staleBefore = now()->subMinutes(10);
@@ -307,6 +335,8 @@ class WpBatchController extends Controller
             ->get();
 
         if ($candidates->isEmpty()) {
+            $wpBatch->recalculateCounters();
+
             return back()->with('info', 'No pending/stale chunks to publish.');
         }
 
@@ -427,6 +457,7 @@ class WpBatchController extends Controller
                 'links_payload',
                 'results_payload',
                 'failed_count',
+                'status',
             ]);
 
         foreach ($query->cursor() as $chunk) {
@@ -441,6 +472,9 @@ class WpBatchController extends Controller
                     'url' => $linkData['url'] ?? '-',
                     'keyword' => $linkData['keyword'] ?? '-',
                     'error_message' => $r['error'] ?? $r['error_message'] ?? 'Failed',
+                    'chunk_id' => $chunk->id,
+                    'link_index' => $i,
+                    'chunk_status' => $chunk->status,
                 ];
                 if (count($failed) >= $limit) {
                     return $failed;
@@ -453,7 +487,8 @@ class WpBatchController extends Controller
 
     public function destroyLink(WpBatch $wpBatch, WpLink $wpLink)
     {
-        if ($wpBatch->user_id !== auth()->id() || $wpLink->wp_batch_id !== $wpBatch->id) {
+        Workspace::assertCanManageRun($wpBatch->user_id);
+        if ($wpLink->wp_batch_id !== $wpBatch->id) {
             abort(403);
         }
 
@@ -468,10 +503,45 @@ class WpBatchController extends Controller
         return back()->with('success', 'Link removal queued. The link will be deleted from all remote sites first, then removed from this batch. Run the queue worker (queue: remove_link_from_wp_batch).');
     }
 
+    public function replaceFailedLink(Request $request, WpBatch $wpBatch)
+    {
+        Workspace::assertCanManageRun($wpBatch->user_id);
+
+        $request->merge([
+            'url' => UnicodeUrl::normalize((string) $request->input('url')),
+        ]);
+
+        $validated = $request->validate([
+            'chunk_id' => 'required|integer',
+            'link_index' => 'required|integer|min:0',
+            'url' => 'required|url|max:2048',
+            'keyword' => 'required|string',
+        ]);
+
+        $chunk = WpBatchSiteChunk::where('wp_batch_id', $wpBatch->id)
+            ->where('id', $validated['chunk_id'])
+            ->firstOrFail();
+
+        try {
+            ReplaceFailedChunkLink::update(
+                $chunk,
+                (int) $validated['link_index'],
+                $validated['url'],
+                $validated['keyword']
+            );
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', 'Failed link updated. Use Retry failed, then Publish pending, to post the new URL.');
+    }
+
     public function retryFailed(WpBatch $wpBatch)
     {
-        if ($wpBatch->user_id !== auth()->id()) {
-            abort(403);
+        Workspace::assertCanManageRun($wpBatch->user_id);
+
+        if ($wpBatch->status === 'paused') {
+            return back()->with('error', 'Resume the WP batch before retrying failed links.');
         }
 
         $chunks = WpBatchSiteChunk::where('wp_batch_id', $wpBatch->id)->where('failed_count', '>', 0)->get();
@@ -534,9 +604,8 @@ class WpBatchController extends Controller
 
     public function destroyDomain(WpBatch $wpBatch, WpSite $wpSite)
     {
-        if ($wpBatch->user_id !== auth()->id() || $wpSite->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($wpBatch->user_id);
+        Workspace::assertInventoryOwned($wpSite->user_id);
 
         if ($wpBatch->status === 'deleting') {
             return back()->with('info', 'Cannot remove sites while batch deletion is in progress.');
@@ -552,9 +621,7 @@ class WpBatchController extends Controller
 
     public function removeProblemDomains(WpBatch $wpBatch)
     {
-        if ($wpBatch->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($wpBatch->user_id);
 
         if ($wpBatch->status === 'deleting') {
             return back()->with('info', 'Cannot remove sites while batch deletion is in progress.');
@@ -580,7 +647,7 @@ class WpBatchController extends Controller
             return 0;
         }
 
-        $ownedIds = WpSite::where('user_id', auth()->id())
+        $ownedIds = WpSite::where('user_id', Workspace::ownerId())
             ->whereIn('id', $wpSiteIds)
             ->pluck('id')
             ->all();
@@ -649,9 +716,7 @@ class WpBatchController extends Controller
 
     public function destroy(WpBatch $wpBatch)
     {
-        if ($wpBatch->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($wpBatch->user_id);
 
         $hasSiteChunks = WpBatchSiteChunk::where('wp_batch_id', $wpBatch->id)->exists();
 

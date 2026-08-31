@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WpBatch extends Model
 {
+    use Concerns\PausesPublishing;
+
     protected $fillable = [
         'user_id',
         'name',
@@ -105,7 +107,7 @@ class WpBatch extends Model
                 if (! $this->completed_at) {
                     $updates['completed_at'] = now();
                 }
-            } elseif ($processed > 0) {
+            } elseif ($processed > 0 && $this->status !== 'paused') {
                 $updates['status'] = 'processing';
             }
         }

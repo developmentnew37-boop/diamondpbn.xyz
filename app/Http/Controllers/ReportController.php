@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Batch;
 use App\Models\BatchDomainChunk;
 use App\Models\Domain;
+use App\Support\Workspace;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -16,17 +17,14 @@ class ReportController extends Controller
 {
     public function index(Request $request)
     {
-        $userId = auth()->id();
-        $batches = Batch::where('user_id', $userId)->orderBy('name')->get(['id', 'name']);
-        $domains = Domain::where('user_id', $userId)->orderBy('domain')->get(['id', 'domain']);
+        $ownerId = Workspace::ownerId();
+        $batches = Workspace::scopeOwnPosting(Batch::query())->orderBy('name')->get(['id', 'name']);
+        $domains = Domain::where('user_id', $ownerId)->orderBy('domain')->get(['id', 'domain']);
 
-        $baseQuery = $this->filteredChunksQuery($userId, $request);
+        $baseQuery = $this->filteredChunksQuery($request);
         $chunkCount = (clone $baseQuery)->count('batch_domain_chunks.id');
         $requireBatchFilter = ! $request->filled('batch_id')
-            && BatchDomainChunk::query()
-                ->join('batches', 'batches.id', '=', 'batch_domain_chunks.batch_id')
-                ->where('batches.user_id', $userId)
-                ->count() > 10000;
+            && $this->workspaceChunkCount() > 10000;
 
         if ($request->get('export') === 'csv') {
             if ($requireBatchFilter) {
@@ -60,12 +58,27 @@ class ReportController extends Controller
         return view('reports.index', compact('batches', 'domains', 'rows', 'chunkCount', 'totalRows', 'requireBatchFilter'));
     }
 
-    private function filteredChunksQuery(int $userId, Request $request): Builder
+    private function workspaceChunkCount(): int
+    {
+        $query = BatchDomainChunk::query()
+            ->join('batches', 'batches.id', '=', 'batch_domain_chunks.batch_id');
+
+        if (! Workspace::isSuperAdmin()) {
+            $query->where('batches.user_id', auth()->id());
+        }
+
+        return $query->count();
+    }
+
+    private function filteredChunksQuery(Request $request): Builder
     {
         $query = BatchDomainChunk::query()
             ->join('batches', 'batches.id', '=', 'batch_domain_chunks.batch_id')
-            ->leftJoin('domains', 'domains.id', '=', 'batch_domain_chunks.domain_id')
-            ->where('batches.user_id', $userId);
+            ->leftJoin('domains', 'domains.id', '=', 'batch_domain_chunks.domain_id');
+
+        if (! Workspace::isSuperAdmin()) {
+            $query->where('batches.user_id', auth()->id());
+        }
 
         if ($request->filled('batch_id')) {
             $query->where('batch_domain_chunks.batch_id', $request->batch_id);

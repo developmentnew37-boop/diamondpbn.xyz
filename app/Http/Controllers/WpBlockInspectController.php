@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\ToggleWpInspectJob;
 use App\Models\WpSite;
+use App\Support\Workspace;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 
@@ -13,7 +14,7 @@ class WpBlockInspectController extends Controller
 
     public function index(Request $request)
     {
-        $userId = auth()->id();
+        $userId = Workspace::ownerId();
         $search = substr(trim((string) $request->query('search', '')), 0, 100);
         $inspectFilter = (string) $request->query('inspect', 'all');
         if (! in_array($inspectFilter, self::INSPECT_FILTERS, true)) {
@@ -54,7 +55,7 @@ class WpBlockInspectController extends Controller
             'block_inspect' => 'required|boolean',
         ]);
 
-        $sites = WpSite::where('user_id', auth()->id())
+        $sites = WpSite::where('user_id', Workspace::ownerId())
             ->where('status', 'active')
             ->where('block_inspect_supported', true)
             ->get();
@@ -76,7 +77,7 @@ class WpBlockInspectController extends Controller
             'wp_site_ids.*' => 'integer|exists:wp_sites,id',
         ]);
 
-        $sites = WpSite::where('user_id', auth()->id())
+        $sites = WpSite::where('user_id', Workspace::ownerId())
             ->whereIn('id', $validated['wp_site_ids'])
             ->where('block_inspect_supported', true)
             ->get();
@@ -112,7 +113,7 @@ class WpBlockInspectController extends Controller
             return $this->redirectBack($request)->with('error', 'Enter at least one domain.');
         }
 
-        $sitesByDomain = WpSite::where('user_id', auth()->id())
+        $sitesByDomain = WpSite::where('user_id', Workspace::ownerId())
             ->whereIn('domain_normalized', $lines)
             ->get()
             ->keyBy('domain_normalized');
@@ -153,7 +154,7 @@ class WpBlockInspectController extends Controller
 
     public function toggleSite(Request $request, WpSite $wpSite)
     {
-        if ($wpSite->user_id !== auth()->id()) {
+        if ($wpSite->user_id !== Workspace::ownerId()) {
             abort(403);
         }
 

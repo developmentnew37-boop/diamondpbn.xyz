@@ -96,7 +96,9 @@
                             <span class="text-slate-600">Error:</span>
                             <strong class="text-red-700 ml-1">{{ number_format($targetDomainStats['error'] ?? 0) }}</strong>
                             @if(($targetDomainStats['inactive'] ?? 0) + ($targetDomainStats['error'] ?? 0) > 0)
+                                @if(auth()->user()->isSuperAdmin())
                                 <a href="{{ route('campaign-domains.index') }}" class="block text-xs text-purple-600 hover:underline mt-1">Fix on Target Domains →</a>
+                                @endif
                             @endif
                         </div>
                     </div>
@@ -104,7 +106,7 @@
 
                     @if($domains->isEmpty())
                         <div class="p-6 text-center bg-slate-50 rounded-lg border border-slate-200">
-                            <p class="text-slate-600">No active target domains found. <a href="{{ route('campaign-domains.index') }}" class="text-purple-600 hover:underline">Add target domains first</a>.</p>
+                            <p class="text-slate-600">No active target domains found.@if(auth()->user()->isSuperAdmin()) <a href="{{ route('campaign-domains.index') }}" class="text-purple-600 hover:underline">Add target domains first</a>.@else Ask a Superadmin to add target domains first.@endif</p>
                         </div>
                     @else
                         <div class="flex items-center gap-2 mb-4 border-b border-slate-200">

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\ToggleHiddenLinksJob;
 use App\Models\CampaignDomain;
 use App\Support\PbnSettings;
+use App\Support\Workspace;
 use Illuminate\Http\Request;
 
 class HiddenLinksController extends Controller
@@ -13,11 +14,11 @@ class HiddenLinksController extends Controller
     {
         $currentStatus = PbnSettings::getShowHiddenLinks();
 
-        $activeDomainCount = CampaignDomain::where('user_id', auth()->id())
+        $activeDomainCount = CampaignDomain::where('user_id', Workspace::ownerId())
             ->where('status', 'active')
             ->count();
 
-        $domains = CampaignDomain::where('user_id', auth()->id())
+        $domains = CampaignDomain::where('user_id', Workspace::ownerId())
             ->where('status', 'active')
             ->orderBy('domain')
             ->paginate(50);
@@ -34,7 +35,7 @@ class HiddenLinksController extends Controller
         $showHiddenLinks = $validated['show_hidden_links'];
 
         // Get all active campaign domains
-        $domains = CampaignDomain::where('user_id', auth()->id())
+        $domains = CampaignDomain::where('user_id', Workspace::ownerId())
             ->where('status', 'active')
             ->get();
 

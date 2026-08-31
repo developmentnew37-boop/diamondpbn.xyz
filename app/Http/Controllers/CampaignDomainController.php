@@ -9,6 +9,7 @@ use App\Models\CampaignDomain;
 use App\Models\DomainImport;
 use App\Rules\SafeApiUrl;
 use App\Support\ApiUrlHelper;
+use App\Support\Workspace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -22,7 +23,7 @@ class CampaignDomainController extends Controller
             $statusFilter = 'all';
         }
 
-        $baseQuery = CampaignDomain::where('user_id', auth()->id());
+        $baseQuery = CampaignDomain::where('user_id', Workspace::ownerId());
         if ($search !== '') {
             $term = '%'.$search.'%';
             $baseQuery->where(function ($q) use ($term) {
@@ -59,7 +60,7 @@ class CampaignDomainController extends Controller
             ->paginate(50)
             ->withQueryString();
 
-        $imports = DomainImport::where('user_id', auth()->id())
+        $imports = DomainImport::where('user_id', Workspace::ownerId())
             ->where('type', 'campaign')
             ->withCount('campaignDomains')
             ->latest()
@@ -77,7 +78,7 @@ class CampaignDomainController extends Controller
 
     public function store(Request $request)
     {
-        $userId = auth()->id();
+        $userId = Workspace::ownerId();
         $validated = $request->validate([
             'domain' => 'required|string',
             'api_url' => ['required', 'url', new SafeApiUrl()],
@@ -107,7 +108,7 @@ class CampaignDomainController extends Controller
 
         $path = $request->file('file')->store('imports');
         $import = DomainImport::create([
-            'user_id' => auth()->id(),
+            'user_id' => Workspace::ownerId(),
             'filename' => $path,
             'type' => 'campaign',
             'status' => 'pending',
@@ -119,7 +120,7 @@ class CampaignDomainController extends Controller
 
     public function edit(CampaignDomain $campaignDomain)
     {
-        if ($campaignDomain->user_id !== auth()->id()) {
+        if ($campaignDomain->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         return view('campaign-domains.edit', compact('campaignDomain'));
@@ -127,7 +128,7 @@ class CampaignDomainController extends Controller
 
     public function update(Request $request, CampaignDomain $campaignDomain)
     {
-        if ($campaignDomain->user_id !== auth()->id()) {
+        if ($campaignDomain->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         $validated = $request->validate([
@@ -137,7 +138,7 @@ class CampaignDomainController extends Controller
             'notes' => 'nullable|string',
         ]);
         $normalized = CampaignDomain::normalizeDomain((string) $validated['domain']);
-        $exists = CampaignDomain::where('user_id', auth()->id())
+        $exists = CampaignDomain::where('user_id', Workspace::ownerId())
             ->where('domain_normalized', $normalized)
             ->where('id', '!=', $campaignDomain->id)
             ->exists();
@@ -154,7 +155,7 @@ class CampaignDomainController extends Controller
 
     public function destroy(CampaignDomain $campaignDomain)
     {
-        if ($campaignDomain->user_id !== auth()->id()) {
+        if ($campaignDomain->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         $campaignDomain->delete();
@@ -168,7 +169,7 @@ class CampaignDomainController extends Controller
             'domain_ids.*' => 'integer',
         ]);
 
-        $ids = CampaignDomain::where('user_id', auth()->id())
+        $ids = CampaignDomain::where('user_id', Workspace::ownerId())
             ->whereIn('id', $validated['domain_ids'])
             ->pluck('id');
 
@@ -176,7 +177,7 @@ class CampaignDomainController extends Controller
             return back()->with('error', 'No matching domains found to delete. Select domains from the list and try again.');
         }
 
-        $deleted = CampaignDomain::where('user_id', auth()->id())
+        $deleted = CampaignDomain::where('user_id', Workspace::ownerId())
             ->whereIn('id', $ids)
             ->delete();
 
@@ -185,7 +186,7 @@ class CampaignDomainController extends Controller
 
     public function destroyImport(DomainImport $domainImport)
     {
-        if ($domainImport->user_id !== auth()->id()) {
+        if ($domainImport->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         if ($domainImport->filename && Storage::exists($domainImport->filename)) {
@@ -198,14 +199,14 @@ class CampaignDomainController extends Controller
 
     public function destroyImportDomains(DomainImport $domainImport)
     {
-        if ($domainImport->user_id !== auth()->id()) {
+        if ($domainImport->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         if (($domainImport->type ?? null) !== 'campaign') {
             return back()->with('error', 'This is not a campaign import record.');
         }
 
-        $deleted = CampaignDomain::where('user_id', auth()->id())
+        $deleted = CampaignDomain::where('user_id', Workspace::ownerId())
             ->where('domain_import_id', $domainImport->id)
             ->delete();
 
@@ -229,7 +230,7 @@ class CampaignDomainController extends Controller
             $statusFilter = 'all';
         }
 
-        $baseQuery = CampaignDomain::where('user_id', auth()->id());
+        $baseQuery = CampaignDomain::where('user_id', Workspace::ownerId());
         if ($search !== '') {
             $term = '%'.$search.'%';
             $baseQuery->where(function ($q) use ($term) {
@@ -287,7 +288,7 @@ class CampaignDomainController extends Controller
 
     public function checkHealth(CampaignDomain $campaignDomain)
     {
-        if ($campaignDomain->user_id !== auth()->id()) {
+        if ($campaignDomain->user_id !== Workspace::ownerId()) {
             abort(403);
         }
 
@@ -304,7 +305,7 @@ class CampaignDomainController extends Controller
             $statusFilter = 'all';
         }
 
-        $baseQuery = CampaignDomain::where('user_id', auth()->id());
+        $baseQuery = CampaignDomain::where('user_id', Workspace::ownerId());
         if ($search !== '') {
             $term = '%'.$search.'%';
             $baseQuery->where(function ($q) use ($term) {

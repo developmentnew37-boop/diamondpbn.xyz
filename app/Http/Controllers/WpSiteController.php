@@ -8,6 +8,7 @@ use App\Models\WpSite;
 use App\Models\WpSiteImport;
 use App\Rules\SafeApiUrl;
 use App\Support\ApiUrlHelper;
+use App\Support\Workspace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -21,7 +22,7 @@ class WpSiteController extends Controller
             $statusFilter = 'all';
         }
 
-        $baseQuery = WpSite::where('user_id', auth()->id());
+        $baseQuery = WpSite::where('user_id', Workspace::ownerId());
         if ($search !== '') {
             $term = '%'.$search.'%';
             $baseQuery->where(function ($q) use ($term) {
@@ -58,7 +59,7 @@ class WpSiteController extends Controller
             ->paginate(50)
             ->withQueryString();
 
-        $imports = WpSiteImport::where('user_id', auth()->id())
+        $imports = WpSiteImport::where('user_id', Workspace::ownerId())
             ->withCount('wpSites')
             ->latest()
             ->limit(20)
@@ -75,7 +76,7 @@ class WpSiteController extends Controller
 
     public function store(Request $request)
     {
-        $userId = auth()->id();
+        $userId = Workspace::ownerId();
         $validated = $request->validate([
             'domain' => 'required|string',
             'api_url' => ['required', 'url', new SafeApiUrl()],
@@ -102,7 +103,7 @@ class WpSiteController extends Controller
 
     public function edit(WpSite $wpSite)
     {
-        if ($wpSite->user_id !== auth()->id()) {
+        if ($wpSite->user_id !== Workspace::ownerId()) {
             abort(403);
         }
 
@@ -115,7 +116,7 @@ class WpSiteController extends Controller
 
         $path = $request->file('file')->store('imports');
         $import = WpSiteImport::create([
-            'user_id' => auth()->id(),
+            'user_id' => Workspace::ownerId(),
             'filename' => $path,
             'status' => 'pending',
         ]);
@@ -127,7 +128,7 @@ class WpSiteController extends Controller
 
     public function update(Request $request, WpSite $wpSite)
     {
-        if ($wpSite->user_id !== auth()->id()) {
+        if ($wpSite->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         $validated = $request->validate([
@@ -137,7 +138,7 @@ class WpSiteController extends Controller
             'notes' => 'nullable|string',
         ]);
         $normalized = WpSite::normalizeDomain((string) $validated['domain']);
-        $exists = WpSite::where('user_id', auth()->id())
+        $exists = WpSite::where('user_id', Workspace::ownerId())
             ->where('domain_normalized', $normalized)
             ->where('id', '!=', $wpSite->id)
             ->exists();
@@ -155,7 +156,7 @@ class WpSiteController extends Controller
 
     public function destroy(WpSite $wpSite)
     {
-        if ($wpSite->user_id !== auth()->id()) {
+        if ($wpSite->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         $wpSite->delete();
@@ -165,7 +166,7 @@ class WpSiteController extends Controller
 
     public function recheck(WpSite $wpSite)
     {
-        if ($wpSite->user_id !== auth()->id()) {
+        if ($wpSite->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         WpSiteHealthCheckJob::dispatch($wpSite);
@@ -181,7 +182,7 @@ class WpSiteController extends Controller
             $statusFilter = 'all';
         }
 
-        $baseQuery = WpSite::where('user_id', auth()->id());
+        $baseQuery = WpSite::where('user_id', Workspace::ownerId());
         if ($search !== '') {
             $term = '%'.$search.'%';
             $baseQuery->where(function ($q) use ($term) {
@@ -225,7 +226,7 @@ class WpSiteController extends Controller
             'wp_site_ids.*' => 'integer',
         ]);
 
-        $ids = WpSite::where('user_id', auth()->id())
+        $ids = WpSite::where('user_id', Workspace::ownerId())
             ->whereIn('id', $validated['wp_site_ids'])
             ->pluck('id');
 
@@ -233,7 +234,7 @@ class WpSiteController extends Controller
             return back()->with('error', 'No matching WP sites found to delete. Select sites from the list and try again.');
         }
 
-        $deleted = WpSite::where('user_id', auth()->id())
+        $deleted = WpSite::where('user_id', Workspace::ownerId())
             ->whereIn('id', $ids)
             ->delete();
 
@@ -242,7 +243,7 @@ class WpSiteController extends Controller
 
     public function destroyImport(WpSiteImport $wpSiteImport)
     {
-        if ($wpSiteImport->user_id !== auth()->id()) {
+        if ($wpSiteImport->user_id !== Workspace::ownerId()) {
             abort(403);
         }
         if ($wpSiteImport->filename && Storage::exists($wpSiteImport->filename)) {
@@ -255,11 +256,11 @@ class WpSiteController extends Controller
 
     public function destroyImportSites(WpSiteImport $wpSiteImport)
     {
-        if ($wpSiteImport->user_id !== auth()->id()) {
+        if ($wpSiteImport->user_id !== Workspace::ownerId()) {
             abort(403);
         }
 
-        $deleted = WpSite::where('user_id', auth()->id())
+        $deleted = WpSite::where('user_id', Workspace::ownerId())
             ->where('wp_site_import_id', $wpSiteImport->id)
             ->delete();
 
@@ -283,7 +284,7 @@ class WpSiteController extends Controller
             $statusFilter = 'all';
         }
 
-        $baseQuery = WpSite::where('user_id', auth()->id());
+        $baseQuery = WpSite::where('user_id', Workspace::ownerId());
         if ($search !== '') {
             $term = '%'.$search.'%';
             $baseQuery->where(function ($q) use ($term) {

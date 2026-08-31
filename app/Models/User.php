@@ -63,8 +63,23 @@ class User extends Authenticatable
         return $this->hasMany(Link::class);
     }
 
+    public function isSuperAdmin(): bool
+    {
+        return in_array($this->role ?? 'superadmin', ['superadmin', 'admin'], true);
+    }
+
     public function isAdmin(): bool
     {
-        return ($this->role ?? 'admin') === 'admin';
+        return $this->isSuperAdmin();
+    }
+
+    public function isOperator(): bool
+    {
+        return ($this->role ?? '') === 'operator';
+    }
+
+    public static function superAdminCount(): int
+    {
+        return static::query()->whereIn('role', ['superadmin', 'admin'])->count();
     }
 }

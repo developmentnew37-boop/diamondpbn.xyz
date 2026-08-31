@@ -9,6 +9,9 @@ use App\Models\CampaignDomain;
 use App\Models\CampaignDomainChunk;
 use App\Models\CampaignLink;
 use App\Support\PbnSettings;
+use App\Support\ReplaceFailedChunkLink;
+use App\Support\UnicodeUrl;
+use App\Support\Workspace;
 use Illuminate\Http\Request;
 
 class CampaignController extends Controller
@@ -18,7 +21,7 @@ class CampaignController extends Controller
         $search = trim((string) $request->input('search', ''));
         $search = substr($search, 0, 100);
 
-        $query = Campaign::where('user_id', auth()->id());
+        $query = Workspace::scopeOwnPosting(Campaign::query());
 
         if ($search !== '') {
             $escaped = str_replace(
@@ -48,7 +51,7 @@ class CampaignController extends Controller
 
     public function create()
     {
-        $baseQuery = CampaignDomain::where('user_id', auth()->id());
+        $baseQuery = CampaignDomain::where('user_id', Workspace::ownerId());
         $ids = (clone $baseQuery)
             ->selectRaw('MAX(id) as id')
             ->groupBy('domain_normalized')
@@ -99,7 +102,7 @@ class CampaignController extends Controller
             }
             $linksInput = is_array($linksInput) ? $linksInput : [];
         }
-        $request->merge(['links' => $linksInput]);
+        $request->merge(['links' => UnicodeUrl::normalizePayload($linksInput)]);
 
         $validated = $request->validate([
             'name' => 'required|string',
@@ -113,7 +116,7 @@ class CampaignController extends Controller
             'links_per_domain' => 'required|integer|min:1|max:1000',
         ]);
 
-        $domainIds = array_values(array_unique(array_filter($validated['domain_ids'], fn ($id) => CampaignDomain::where('id', $id)->where('user_id', auth()->id())->exists())));
+        $domainIds = array_values(array_unique(array_filter($validated['domain_ids'], fn ($id) => CampaignDomain::where('id', $id)->where('user_id', Workspace::ownerId())->exists())));
         if (empty($domainIds)) {
             return back()->withErrors(['domain_ids' => 'Select at least one campaign domain you own.'])->withInput();
         }
@@ -226,9 +229,7 @@ class CampaignController extends Controller
 
     public function show(Campaign $campaign)
     {
-        if ($campaign->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($campaign->user_id);
 
         $domainStats = $this->buildDomainStatsForCampaign($campaign);
         $problemDomainCount = collect($domainStats)->where('is_problem', true)->count();
@@ -294,9 +295,8 @@ class CampaignController extends Controller
 
     public function showDomain(Campaign $campaign, CampaignDomain $campaignDomain)
     {
-        if ($campaign->user_id !== auth()->id() || $campaignDomain->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($campaign->user_id);
+        Workspace::assertInventoryOwned($campaignDomain->user_id);
 
         $chunks = CampaignDomainChunk::where('campaign_id', $campaign->id)
             ->where('campaign_domain_id', $campaignDomain->id)
@@ -323,6 +323,8 @@ class CampaignController extends Controller
                     'error' => $result['error'] ?? $result['error_message'] ?? null,
                     'chunk_index' => $chunk->chunk_index,
                     'chunk_id' => $chunk->id,
+                    'chunk_status' => $chunk->status,
+                    'link_index' => $i,
                 ];
             }
         }
@@ -330,10 +332,137 @@ class CampaignController extends Controller
         return view('campaigns.domain', compact('campaign', 'campaignDomain', 'chunks', 'linksWithStatus'));
     }
 
+    public function pause(Campaign $campaign)
+    {
+        Workspace::assertCanManageRun($campaign->user_id);
+
+        if (! $campaign->canPause()) {
+            return back()->with('error', 'This campaign cannot be paused in its current state.');
+        }
+
+        $campaign->update(['status' => 'paused']);
+
+        return back()->with('success', 'Campaign paused. Remaining queued posts will wait until you resume. One chunk already in progress may still finish.');
+    }
+
+    public function resume(Campaign $campaign)
+    {
+        Workspace::assertCanManageRun($campaign->user_id);
+
+        if (! $campaign->canResume()) {
+            return back()->with('error', 'This campaign is not paused.');
+        }
+
+        $campaign->update(['status' => 'processing', 'started_at' => $campaign->started_at ?? now()]);
+
+        return $this->publishPending($campaign);
+    }
+
+    public function replaceFailedLink(Request $request, Campaign $campaign)
+    {
+        Workspace::assertCanManageRun($campaign->user_id);
+
+        $request->merge([
+            'url' => UnicodeUrl::normalize((string) $request->input('url')),
+        ]);
+
+        $validated = $request->validate([
+            'chunk_id' => 'required|integer',
+            'link_index' => 'required|integer|min:0',
+            'url' => 'required|url|max:2048',
+            'keyword' => 'required|string',
+        ]);
+
+        $chunk = CampaignDomainChunk::where('campaign_id', $campaign->id)
+            ->where('id', $validated['chunk_id'])
+            ->firstOrFail();
+
+        try {
+            ReplaceFailedChunkLink::update(
+                $chunk,
+                (int) $validated['link_index'],
+                $validated['url'],
+                $validated['keyword']
+            );
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', 'Failed link updated. Use Retry failed, then Publish pending, to post the new URL.');
+    }
+
+    public function retryFailed(Campaign $campaign)
+    {
+        Workspace::assertCanManageRun($campaign->user_id);
+
+        if ($campaign->status === 'paused') {
+            return back()->with('error', 'Resume the campaign before retrying failed links.');
+        }
+
+        $chunks = CampaignDomainChunk::where('campaign_id', $campaign->id)->where('failed_count', '>', 0)->get();
+        $totalRetrying = 0;
+        foreach ($chunks as $chunk) {
+            $linksPayload = $chunk->links_payload ?? [];
+            $resultsPayload = $chunk->results_payload ?? [];
+            $failedIndices = $chunk->failedLinkIndices();
+            if (empty($failedIndices)) {
+                continue;
+            }
+            $failedLinks = array_values(array_filter(array_map(fn ($i) => $linksPayload[$i] ?? null, $failedIndices)));
+            $retryChunks = array_chunk($failedLinks, CampaignDomainChunk::CHUNK_SIZE);
+            foreach ($retryChunks as $retryIndex => $retryLinks) {
+                CampaignDomainChunk::create([
+                    'campaign_id' => $campaign->id,
+                    'campaign_domain_id' => $chunk->campaign_domain_id,
+                    'chunk_index' => $chunk->chunk_index + 1000 + $retryIndex,
+                    'links_payload' => $retryLinks,
+                    'status' => 'pending',
+                ]);
+                $totalRetrying += count($retryLinks);
+            }
+
+            $remainingLinks = array_values(array_filter($linksPayload, fn ($v, $k) => ! in_array($k, $failedIndices, true), ARRAY_FILTER_USE_BOTH));
+            $remainingResults = array_values(array_filter($resultsPayload, fn ($v, $k) => ! in_array($k, $failedIndices, true), ARRAY_FILTER_USE_BOTH));
+
+            if ($remainingLinks === []) {
+                $chunk->delete();
+                continue;
+            }
+
+            $remainingSuccess = 0;
+            $remainingFailed = 0;
+            foreach ($remainingResults as $r) {
+                if (CampaignDomainChunk::isFailedLinkResult($r)) {
+                    $remainingFailed++;
+                } else {
+                    $remainingSuccess++;
+                }
+            }
+
+            $chunk->update([
+                'links_payload' => $remainingLinks,
+                'results_payload' => $remainingResults,
+                'success_count' => $remainingSuccess,
+                'failed_count' => $remainingFailed,
+                'status' => $remainingFailed > 0 ? CampaignDomainChunk::STATUS_PARTIAL : CampaignDomainChunk::STATUS_COMPLETED,
+            ]);
+        }
+        if ($totalRetrying === 0) {
+            return back()->with('info', 'No failed links to retry.');
+        }
+
+        $campaign->recalculateCounters();
+        $campaign->update(['status' => 'processing']);
+
+        return back()->with('success', 'Retrying '.$totalRetrying.' failed link(s). Use "Publish pending chunks" to send them.');
+    }
+
     public function publishPending(Campaign $campaign)
     {
-        if ($campaign->user_id !== auth()->id()) {
-            abort(403);
+        Workspace::assertCanManageRun($campaign->user_id);
+
+        if ($campaign->status === 'deleting') {
+            return back()->with('info', 'Cannot publish while campaign deletion is in progress.');
         }
 
         $staleBefore = now()->subMinutes(10);
@@ -355,6 +484,8 @@ class CampaignController extends Controller
             ->get();
 
         if ($candidates->isEmpty()) {
+            $campaign->recalculateCounters();
+
             return back()->with('info', 'No pending/stale chunks to publish.');
         }
 
@@ -379,7 +510,8 @@ class CampaignController extends Controller
 
     public function destroyLink(Campaign $campaign, CampaignLink $link)
     {
-        if ($campaign->user_id !== auth()->id() || $link->campaign_id !== $campaign->id) {
+        Workspace::assertCanManageRun($campaign->user_id);
+        if ($link->campaign_id !== $campaign->id) {
             abort(403);
         }
 
@@ -391,9 +523,8 @@ class CampaignController extends Controller
 
     public function destroyDomain(Campaign $campaign, CampaignDomain $campaignDomain)
     {
-        if ($campaign->user_id !== auth()->id() || $campaignDomain->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($campaign->user_id);
+        Workspace::assertInventoryOwned($campaignDomain->user_id);
 
         if ($campaign->status === 'deleting') {
             return back()->with('info', 'Cannot remove domains while campaign deletion is in progress.');
@@ -409,9 +540,7 @@ class CampaignController extends Controller
 
     public function removeProblemDomains(Campaign $campaign)
     {
-        if ($campaign->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($campaign->user_id);
 
         if ($campaign->status === 'deleting') {
             return back()->with('info', 'Cannot remove domains while campaign deletion is in progress.');
@@ -437,7 +566,7 @@ class CampaignController extends Controller
             return 0;
         }
 
-        $ownedIds = CampaignDomain::where('user_id', auth()->id())
+        $ownedIds = CampaignDomain::where('user_id', Workspace::ownerId())
             ->whereIn('id', $campaignDomainIds)
             ->pluck('id')
             ->all();
@@ -514,9 +643,7 @@ class CampaignController extends Controller
 
     public function destroy(Campaign $campaign)
     {
-        if ($campaign->user_id !== auth()->id()) {
-            abort(403);
-        }
+        Workspace::assertCanManageRun($campaign->user_id);
 
         if ($campaign->status === 'deleting') {
             return back()->with('info', 'Campaign deletion is already in progress. Run the queue worker (delete_campaign_links).');

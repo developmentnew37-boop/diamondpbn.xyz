@@ -156,9 +156,9 @@
                                     <span class="text-sm">{{ $wpSite->domain }}</span>
                                 </label>
                             @empty
-                                <p class="text-slate-500 text-sm py-4">No WP sites available. <a
+                                <p class="text-slate-500 text-sm py-4">No WP sites available.@if(auth()->user()->isSuperAdmin()) <a
                                         href="{{ route('wp-sites.index') }}" class="text-sky-600 hover:underline">Import
-                                        WP sites first</a>.</p>
+                                        WP sites first</a>.@else Ask a Superadmin to import WP sites first.@endif</p>
                             @endforelse
                         </div>
                     </div>

@@ -12,6 +12,7 @@
                 $statusClasses = [
                     'pending' => 'bg-slate-100 text-slate-600',
                     'processing' => 'bg-amber-100 text-amber-700',
+                    'paused' => 'bg-blue-100 text-blue-700',
                     'deleting' => 'bg-sky-100 text-sky-700',
                     'completed' => 'bg-emerald-100 text-emerald-700',
                     'failed' => 'bg-red-100 text-red-700',
@@ -21,6 +22,23 @@
                 ];
             @endphp
             <span class="px-3 py-1 text-sm font-medium rounded-full {{ $statusClasses[$campaign->status ?? 'pending'] ?? 'bg-slate-100 text-slate-600' }}">{{ ucwords(str_replace('_', ' ', $campaign->status ?? 'pending')) }}</span>
+            @if($campaign->canPause())
+            <form method="POST" action="{{ route('campaigns.pause', $campaign) }}" class="inline" onsubmit="return confirm('Pause this campaign? Remaining queued posts will wait until you resume. One chunk already in progress may still finish.');">
+                @csrf
+                <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+                    Pause
+                </button>
+            </form>
+            @elseif($campaign->canResume())
+            <form method="POST" action="{{ route('campaigns.resume', $campaign) }}" class="inline">
+                @csrf
+                <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition-colors">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    Resume
+                </button>
+            </form>
+            @endif
         </div>
         @if($campaign->description ?? null)
             <p class="text-slate-500 mt-1">{{ $campaign->description }}</p>
@@ -63,6 +81,12 @@
             <p class="text-sm text-violet-800 mt-1">Remote deletion finished for responsive domains. This campaign now only lists domains where links could not be removed. Delete again to retry remaining sites.</p>
         </div>
     @endif
+    @if(($campaign->status ?? '') === 'paused')
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex items-center gap-3">
+            <svg class="w-5 h-5 text-blue-600 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+            <span class="text-blue-800 font-medium">Paused. Queued posting is stopped. Click Resume to continue remaining chunks.</span>
+        </div>
+    @endif
     @if(($campaign->status ?? '') === 'processing')
         <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 flex items-center gap-3">
             <svg class="w-5 h-5 text-amber-600 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -90,7 +114,15 @@
                         <p class="text-sm text-slate-500 mt-0.5">Remove offline or failing domains without stopping the campaign on live sites.</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2 lg:justify-end">
-            @if($hasPendingChunks ?? false)
+            @if(($campaign->status ?? '') === 'paused')
+                <form method="POST" action="{{ route('campaigns.resume', $campaign) }}" class="inline">
+                    @csrf
+                    <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition-colors">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        Resume
+                    </button>
+                </form>
+            @elseif($hasPendingChunks ?? false)
                 <form method="POST" action="{{ route('campaigns.publish-pending', $campaign) }}" class="inline">
                     @csrf
                     <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-sky-600 text-white hover:bg-sky-700 shadow-sm transition-colors">
@@ -99,7 +131,16 @@
                     </button>
                 </form>
             @endif
-            @if(($problemDomainCount ?? 0) > 0)
+            @if(($campaign->failed_count ?? 0) > 0 && ($campaign->status ?? '') !== 'paused')
+                <form method="POST" action="{{ route('campaigns.retry-failed', $campaign) }}" class="inline">
+                    @csrf
+                    <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                        Retry failed
+                    </button>
+                </form>
+            @endif
+            @if(auth()->user()->isSuperAdmin() && ($problemDomainCount ?? 0) > 0)
                 <form method="POST" action="{{ route('campaigns.domains.remove-problem', $campaign) }}" class="inline" onsubmit="return confirm('Remove {{ $problemDomainCount }} problem domain(s) from this campaign? Pending/failed work on those sites will stop. Links already posted will be cleaned remotely when possible.');">
                     @csrf
                     <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors">
@@ -171,6 +212,7 @@
                             <td class="px-6 py-4 text-right">
                                 <div class="inline-flex items-center gap-2 justify-end">
                                 <a href="{{ route('campaigns.show-domain', [$campaign, $row['domain_id'] ?? 0]) }}" class="text-purple-600 hover:text-purple-700 text-sm font-medium">View</a>
+                                @if(auth()->user()->isSuperAdmin())
                                 <form method="POST" action="{{ route('campaigns.domains.destroy', [$campaign, $row['domain_id'] ?? 0]) }}" class="inline" onsubmit="return confirm('Remove this domain from the campaign? Pending posts to this site will stop.');">
                                     @csrf
                                     @method('DELETE')
@@ -178,6 +220,7 @@
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                     </button>
                                 </form>
+                                @endif
                                 </div>
                             </td>
                         </tr>
@@ -224,6 +267,7 @@
                             <td class="px-6 py-3 text-sm text-slate-800 break-all max-w-xs">{{ $link->url }}</td>
                             <td class="px-6 py-3 text-sm text-slate-700">{{ $link->keyword }}</td>
                             <td class="px-6 py-3 text-right">
+                                @if(auth()->user()->isSuperAdmin())
                                 <form method="POST" action="{{ route('campaigns.links.destroy', [$campaign, $link]) }}" class="inline" onsubmit="return confirm('Remove this link from all target domains? This action cannot be undone.');">
                                     @csrf
                                     @method('DELETE')
@@ -231,6 +275,7 @@
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                     </button>
                                 </form>
+                                @endif
                             </td>
                         </tr>
                     @empty

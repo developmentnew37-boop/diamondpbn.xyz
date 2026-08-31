@@ -35,7 +35,8 @@
 
         <label for="remember_me" class="flex items-center gap-2 cursor-pointer">
             <input id="remember_me" type="checkbox"
-                class="rounded border-slate-300 text-orange-500 focus:ring-orange-500 w-4 h-4" name="remember">
+                class="rounded border-slate-300 text-orange-500 focus:ring-orange-500 w-4 h-4" name="remember" value="1"
+                {{ old('remember') ? 'checked' : '' }}>
             <span class="text-sm text-slate-600">{{ __('Remember me') }}</span>
         </label>
 

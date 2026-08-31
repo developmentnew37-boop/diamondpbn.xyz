@@ -10,6 +10,7 @@ use App\Models\Link;
 use App\Support\ApiUrlHelper;
 use App\Support\PbnSettings;
 use App\Support\SafeApiUrl;
+use App\Support\UnicodeUrl;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
@@ -23,6 +24,23 @@ class PbnApiService
     private function http(int $timeoutSeconds = 0): PendingRequest
     {
         return Http::withoutVerifying()->timeout($timeoutSeconds > 0 ? $timeoutSeconds : $this->timeout());
+    }
+
+    /**
+     * POST JSON with unescaped Unicode so Thai keywords are not sent as \uXXXX.
+     *
+     * @param  array<string, string>  $headers
+     * @param  array<string, mixed>  $body
+     */
+    private function postJson(string $url, array $headers, array $body): \Illuminate\Http\Client\Response
+    {
+        $headers['Content-Type'] = 'application/json; charset=utf-8';
+        $headers['Accept'] = $headers['Accept'] ?? 'application/json';
+
+        return $this->http()
+            ->withHeaders($headers)
+            ->withBody(UnicodeUrl::jsonBody($body), 'application/json; charset=utf-8')
+            ->post($url);
     }
 
     private function assertSafeApiUrl(string $apiUrl): void
@@ -79,7 +97,7 @@ class PbnApiService
     {
         $key = $this->apiKeyForCampaignDomain($domain);
         $headers = [
-            'Content-Type' => 'application/json',
+            'Content-Type' => 'application/json; charset=utf-8',
             'Accept' => 'application/json',
         ];
         if ($key !== '') {
@@ -87,7 +105,7 @@ class PbnApiService
             $headers['X-API-Key'] = $key;
         }
 
-        $payload = $chunk->links_payload ?? [];
+        $payload = UnicodeUrl::normalizePayload(is_array($chunk->links_payload) ? $chunk->links_payload : []);
         $body = [
             'payload' => $payload,
             'batch_id' => $chunk->campaign_id, // Use campaign_id as batch_id for API compatibility
@@ -98,9 +116,7 @@ class PbnApiService
         return $this->callWithApiUrlFallback($domain->api_url, function (string $apiBase) use ($headers, $body) {
             $url = rtrim($apiBase, '/') . '/hidden-links';
             $this->assertSafeApiUrl($apiBase);
-            $response = $this->http()
-                ->withHeaders($headers)
-                ->post($url, $body);
+            $response = $this->postJson($url, $headers, $body);
 
             if ($response->failed()) {
                 throw new \RuntimeException(
@@ -120,7 +136,7 @@ class PbnApiService
     {
         $key = $this->apiKeyFor($domain);
         $headers = [
-            'Content-Type' => 'application/json',
+            'Content-Type' => 'application/json; charset=utf-8',
             'Accept' => 'application/json',
         ];
         if ($key !== '') {
@@ -128,7 +144,7 @@ class PbnApiService
             $headers['X-API-Key'] = $key;
         }
 
-        $payload = $chunk->links_payload ?? [];
+        $payload = UnicodeUrl::normalizePayload(is_array($chunk->links_payload) ? $chunk->links_payload : []);
         $body = [
             'payload' => $payload,
             'batch_id' => $chunk->batch_id,
@@ -139,9 +155,7 @@ class PbnApiService
         return $this->callWithApiUrlFallback($domain->api_url, function (string $apiBase) use ($headers, $body) {
             $url = rtrim($apiBase, '/') . '/hidden-links';
             $this->assertSafeApiUrl($apiBase);
-            $response = $this->http()
-                ->withHeaders($headers)
-                ->post($url, $body);
+            $response = $this->postJson($url, $headers, $body);
 
             if ($response->failed()) {
                 throw new \RuntimeException(
@@ -159,13 +173,15 @@ class PbnApiService
         $response = $this->http()->withHeaders([
             'Authorization' => 'Bearer ' . $this->apiKeyFor($domain),
             'Accept' => 'application/json',
+            'Content-Type' => 'application/json; charset=utf-8',
         ])
-            ->post(rtrim($domain->api_url, '/') . '/links', [
-                'url' => $link->url,
+            ->withBody(UnicodeUrl::jsonBody([
+                'url' => UnicodeUrl::normalize((string) $link->url),
                 'keyword' => $link->keyword,
                 'nofollow' => $link->no_follow,
                 'batch_id' => $link->batch_id,
-            ]);
+            ]), 'application/json; charset=utf-8')
+            ->post(rtrim($domain->api_url, '/') . '/links');
 
         if ($response->failed()) {
             throw new \RuntimeException(
@@ -184,7 +200,7 @@ class PbnApiService
     {
         $key = $this->apiKeyFor($domain);
         $headers = [
-            'Content-Type' => 'application/json',
+            'Content-Type' => 'application/json; charset=utf-8',
             'Accept' => 'application/json',
         ];
         if ($key !== '') {
@@ -196,7 +212,7 @@ class PbnApiService
         $this->assertSafeApiUrl($domain->api_url);
         $response = $this->http()
             ->withHeaders($headers)
-            ->withBody(json_encode(['url' => $url]), 'application/json')
+            ->withBody(UnicodeUrl::jsonBody(['url' => UnicodeUrl::normalize($url)]), 'application/json; charset=utf-8')
             ->delete($endpoint);
 
         if ($response->failed()) {
@@ -216,7 +232,7 @@ class PbnApiService
     {
         $key = $this->apiKeyForCampaignDomain($domain);
         $headers = [
-            'Content-Type' => 'application/json',
+            'Content-Type' => 'application/json; charset=utf-8',
             'Accept' => 'application/json',
         ];
         if ($key !== '') {
@@ -228,7 +244,7 @@ class PbnApiService
         $this->assertSafeApiUrl($domain->api_url);
         $response = $this->http()
             ->withHeaders($headers)
-            ->withBody(json_encode(['url' => $url]), 'application/json')
+            ->withBody(UnicodeUrl::jsonBody(['url' => UnicodeUrl::normalize($url)]), 'application/json; charset=utf-8')
             ->delete($endpoint);
 
         if ($response->failed()) {

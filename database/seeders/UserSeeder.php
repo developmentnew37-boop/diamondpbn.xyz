@@ -17,7 +17,7 @@ class UserSeeder extends Seeder
             'name' => 'hyder',
             'email' => 'hyderalioffice9734@gmail.com',
             'password' => 'anas123@#',
-            'role' => 'admin',
+            'role' => 'superadmin',
         ]);
     }
 }

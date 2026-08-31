@@ -160,9 +160,9 @@
                                     <span class="text-sm">{{ $domain->domain }}</span>
                                 </label>
                             @empty
-                                <p class="text-slate-500 text-sm py-4">No domains available. <a
+                                <p class="text-slate-500 text-sm py-4">No domains available.@if(auth()->user()->isSuperAdmin()) <a
                                         href="{{ route('domains.index') }}" class="text-emerald-600 hover:underline">Import
-                                        domains first</a>.</p>
+                                        domains first</a>.@else Ask a Superadmin to import domains first.@endif</p>
                             @endforelse
                         </div>
                     </div>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ExtendRememberedSession;
 use App\Models\User;
 use App\Services\LoginOtpService;
 use Illuminate\Http\RedirectResponse;
@@ -53,6 +54,12 @@ class LoginOtpController extends Controller
         $request->session()->forget('login.id');
 
         Auth::login($user, $remember);
+
+        if ($remember) {
+            $request->session()->put('auth.remember_week', true);
+            config(['session.lifetime' => ExtendRememberedSession::LIFETIME_MINUTES]);
+        }
+
         $request->session()->regenerate();
 
         return redirect()->intended(route('dashboard', absolute: false));

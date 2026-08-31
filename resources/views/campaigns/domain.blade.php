@@ -28,6 +28,7 @@
                         <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Remote ID</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Error</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider w-24">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-200">
@@ -52,10 +53,23 @@
                             </td>
                             <td class="px-6 py-3 text-sm text-slate-600">{{ $item['remote_post_id'] ?? '-' }}</td>
                             <td class="px-6 py-3 text-sm text-red-600 max-w-xs truncate" title="{{ $item['error'] ?? '' }}">{{ $item['error'] ? Str::limit($item['error'], 50) : '-' }}</td>
+                            <td class="px-6 py-3 text-right">
+                                @if(in_array($item['status'] ?? '', ['failed', '-'], true) && ! in_array($item['chunk_status'] ?? '', ['pending', 'processing'], true) && ! empty($item['chunk_id']))
+                                <button type="button" title="Replace URL/keyword, then Retry failed"
+                                    data-chunk-id="{{ $item['chunk_id'] }}"
+                                    data-link-index="{{ $item['link_index'] }}"
+                                    data-url="{{ $item['url'] ?? '' }}"
+                                    data-keyword="{{ $item['keyword'] ?? '' }}"
+                                    onclick="openReplaceFailedModal(this)"
+                                    class="px-2 py-1 text-xs font-medium rounded-lg border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors">
+                                    Replace
+                                </button>
+                                @endif
+                            </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="px-6 py-12 text-center text-slate-500">
+                            <td colspan="7" class="px-6 py-12 text-center text-slate-500">
                                 No links found for this domain.
                             </td>
                         </tr>
@@ -65,4 +79,5 @@
         </div>
     </div>
 </div>
+@include('partials.replace-failed-link-modal', ['action' => route('campaigns.replace-failed-link', $campaign)])
 @endsection

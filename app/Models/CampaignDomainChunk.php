@@ -59,4 +59,40 @@ class CampaignDomainChunk extends Model
     {
         return $this->results_payload ?? [];
     }
+
+    public static function isFailedLinkResult(?array $result): bool
+    {
+        if ($result === null) {
+            return true;
+        }
+
+        $status = $result['status'] ?? '';
+
+        return $status !== 'success' && $status !== 'completed';
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    public function failedLinkIndices(): array
+    {
+        $linksPayload = $this->links_payload ?? [];
+        $resultsPayload = $this->results_payload ?? [];
+        $indices = [];
+
+        foreach ($linksPayload as $i => $_) {
+            if (self::isFailedLinkResult($resultsPayload[$i] ?? null)) {
+                $indices[] = $i;
+            }
+        }
+
+        $failedCount = (int) ($this->failed_count ?? 0);
+        $linkCount = count($linksPayload);
+
+        if ($indices === [] && $failedCount > 0 && $linkCount > 0) {
+            return range(0, $linkCount - 1);
+        }
+
+        return $indices;
+    }
 }

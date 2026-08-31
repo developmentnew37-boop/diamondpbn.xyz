@@ -63,6 +63,12 @@ class PublishWpBatchChunkJob implements ShouldBeUnique, ShouldQueue
 
         }
 
+        if (in_array($chunk->wpBatch->status, ['paused', 'deleting'], true)) {
+
+            return;
+
+        }
+
         if (! $this->shouldProcessChunk($chunk)) {
 
             return;

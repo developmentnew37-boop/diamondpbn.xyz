@@ -7,6 +7,7 @@ use App\Models\WpSite;
 use App\Support\ApiUrlHelper;
 use App\Support\PbnSettings;
 use App\Support\SafeApiUrl;
+use App\Support\UnicodeUrl;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
@@ -66,7 +67,7 @@ class WpApiService
     {
         $key = $this->apiKeyFor($site);
         $headers = [
-            'Content-Type' => 'application/json',
+            'Content-Type' => 'application/json; charset=utf-8',
             'Accept' => 'application/json',
         ];
         if ($key !== '') {
@@ -80,8 +81,9 @@ class WpApiService
     public function postChunk(WpSite $site, WpBatchSiteChunk $chunk): array
     {
         $headers = $this->authHeaders($site);
+        $payload = UnicodeUrl::normalizePayload(is_array($chunk->links_payload) ? $chunk->links_payload : []);
         $body = [
-            'payload' => $chunk->links_payload ?? [],
+            'payload' => $payload,
             'batch_id' => $chunk->wp_batch_id,
             'chunk_id' => $chunk->chunk_index,
             'domain_id' => $chunk->wp_site_id,
@@ -90,7 +92,10 @@ class WpApiService
         return $this->callWithApiUrlFallback($site->api_url, function (string $apiBase) use ($headers, $body) {
             $url = rtrim($apiBase, '/').'/hidden-links';
             $this->assertSafeApiUrl($apiBase);
-            $response = $this->http()->withHeaders($headers)->post($url, $body);
+            $response = $this->http()
+                ->withHeaders($headers)
+                ->withBody(UnicodeUrl::jsonBody($body), 'application/json; charset=utf-8')
+                ->post($url);
 
             if ($response->failed()) {
                 throw new \RuntimeException('API Error '.$response->status().': '.$response->body());
@@ -108,11 +113,11 @@ class WpApiService
             $response = $this->http()
                 ->withHeaders($this->authHeaders($site))
                 ->acceptJson()
-                ->asJson()
                 ->withOptions([
                     'allow_redirects' => ['max' => 5, 'strict' => true, 'protocols' => ['https', 'http']],
                 ])
-                ->delete($endpoint, ['url' => $url]);
+                ->withBody(UnicodeUrl::jsonBody(['url' => UnicodeUrl::normalize($url)]), 'application/json; charset=utf-8')
+                ->delete($endpoint);
 
             if ($response->failed()) {
                 throw new \RuntimeException('API Error '.$response->status().': '.$response->body());
