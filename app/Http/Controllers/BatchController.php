@@ -7,6 +7,7 @@ use App\Jobs\DeleteBatchDomainJob;
 use App\Jobs\DeleteBatchJob;
 use App\Jobs\PublishBatchChunkJob;
 use App\Jobs\RemoveLinkFromBatchJob;
+use App\Jobs\RetryFailedBatchChunksJob;
 use App\Models\Batch;
 use App\Models\BatchDomainChunk;
 use App\Models\Domain;
@@ -359,7 +360,7 @@ class BatchController extends Controller
         // - anything processing that has been processing for a while (stale)
         $staleBefore = now()->subMinutes(10);
 
-        $candidates = BatchDomainChunk::where('batch_id', $batch->id)
+        $candidateIds = BatchDomainChunk::where('batch_id', $batch->id)
             ->where(function ($q) use ($staleBefore) {
                 $q->where('status', BatchDomainChunk::STATUS_PENDING)
                     ->orWhere(function ($qq) use ($staleBefore) {
@@ -373,20 +374,21 @@ class BatchController extends Controller
             })
             ->orderBy('domain_id')
             ->orderBy('chunk_index')
-            ->get();
+            ->pluck('id');
 
-        if ($candidates->isEmpty()) {
+        if ($candidateIds->isEmpty()) {
             $batch->recalculateCounters();
 
             return back()->with('info', 'No pending/stale chunks to publish.');
         }
 
         // Ensure all candidates are pending so the job will run (job ignores non-pending chunks).
-        BatchDomainChunk::whereIn('id', $candidates->pluck('id'))
+        BatchDomainChunk::whereIn('id', $candidateIds)
             ->update(['status' => BatchDomainChunk::STATUS_PENDING]);
 
         $pending = BatchDomainChunk::where('batch_id', $batch->id)
             ->where('status', BatchDomainChunk::STATUS_PENDING)
+            ->select(['id', 'batch_id', 'domain_id', 'chunk_index'])
             ->orderBy('domain_id')
             ->orderBy('chunk_index')
             ->get();
@@ -613,62 +615,19 @@ class BatchController extends Controller
             return back()->with('error', 'Resume the batch before retrying failed links.');
         }
 
-        $chunks = BatchDomainChunk::where('batch_id', $batch->id)->where('failed_count', '>', 0)->get();
-        $totalRetrying = 0;
-        foreach ($chunks as $chunk) {
-            $linksPayload = $chunk->links_payload ?? [];
-            $resultsPayload = $chunk->results_payload ?? [];
-            $failedIndices = $chunk->failedLinkIndices();
-            if (empty($failedIndices)) {
-                continue;
-            }
-            $failedLinks = array_values(array_filter(array_map(fn ($i) => $linksPayload[$i] ?? null, $failedIndices)));
-            $retryChunks = array_chunk($failedLinks, BatchDomainChunk::CHUNK_SIZE);
-            foreach ($retryChunks as $retryIndex => $retryLinks) {
-                BatchDomainChunk::create([
-                    'batch_id' => $batch->id,
-                    'domain_id' => $chunk->domain_id,
-                    'chunk_index' => $chunk->chunk_index + 1000 + $retryIndex,
-                    'links_payload' => $retryLinks,
-                    'status' => 'pending',
-                ]);
-                $totalRetrying += count($retryLinks);
-            }
-
-            $remainingLinks = array_values(array_filter($linksPayload, fn ($v, $k) => ! in_array($k, $failedIndices, true), ARRAY_FILTER_USE_BOTH));
-            $remainingResults = array_values(array_filter($resultsPayload, fn ($v, $k) => ! in_array($k, $failedIndices, true), ARRAY_FILTER_USE_BOTH));
-
-            if ($remainingLinks === []) {
-                $chunk->delete();
-                continue;
-            }
-
-            $remainingSuccess = 0;
-            $remainingFailed = 0;
-            foreach ($remainingResults as $r) {
-                if (BatchDomainChunk::isFailedLinkResult($r)) {
-                    $remainingFailed++;
-                } else {
-                    $remainingSuccess++;
-                }
-            }
-
-            $chunk->update([
-                'links_payload' => $remainingLinks,
-                'results_payload' => $remainingResults,
-                'success_count' => $remainingSuccess,
-                'failed_count' => $remainingFailed,
-                'status' => $remainingFailed > 0 ? BatchDomainChunk::STATUS_PARTIAL : BatchDomainChunk::STATUS_COMPLETED,
-            ]);
+        if ($batch->status === 'deleting') {
+            return back()->with('error', 'Cannot retry failed links while batch deletion is in progress.');
         }
-        if ($totalRetrying === 0) {
+
+        $failedChunks = BatchDomainChunk::where('batch_id', $batch->id)->where('failed_count', '>', 0)->count();
+        if ($failedChunks === 0) {
             return back()->with('info', 'No failed links to retry.');
         }
 
-        $batch->recalculateCounters();
+        RetryFailedBatchChunksJob::dispatch($batch->id);
         $batch->update(['status' => 'processing']);
 
-        return back()->with('success', 'Retrying '.$totalRetrying.' failed link(s). Use "Publish pending chunks" to send them.');
+        return back()->with('success', 'Retry queued for '.number_format((int) ($batch->failed_count ?? 0)).' failed link(s). Refresh in a moment, then use Publish pending to send them. Queue worker: batch_links.');
     }
 
     public function destroyDomain(Batch $batch, Domain $domain)

@@ -122,7 +122,7 @@
                         Resume
                     </button>
                 </form>
-            @elseif($hasPendingChunks ?? false)
+            @elseif(($campaign->status ?? '') !== 'deleting')
                 <form method="POST" action="{{ route('campaigns.publish-pending', $campaign) }}" class="inline">
                     @csrf
                     <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-sky-600 text-white hover:bg-sky-700 shadow-sm transition-colors">

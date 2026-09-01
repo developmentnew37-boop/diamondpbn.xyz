@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\DeleteCampaignLinksJob;
 use App\Jobs\PublishCampaignChunkJob;
+use App\Jobs\RetryFailedCampaignChunksJob;
 use App\Models\Campaign;
 use App\Models\CampaignDomain;
 use App\Models\CampaignDomainChunk;
@@ -399,62 +400,19 @@ class CampaignController extends Controller
             return back()->with('error', 'Resume the campaign before retrying failed links.');
         }
 
-        $chunks = CampaignDomainChunk::where('campaign_id', $campaign->id)->where('failed_count', '>', 0)->get();
-        $totalRetrying = 0;
-        foreach ($chunks as $chunk) {
-            $linksPayload = $chunk->links_payload ?? [];
-            $resultsPayload = $chunk->results_payload ?? [];
-            $failedIndices = $chunk->failedLinkIndices();
-            if (empty($failedIndices)) {
-                continue;
-            }
-            $failedLinks = array_values(array_filter(array_map(fn ($i) => $linksPayload[$i] ?? null, $failedIndices)));
-            $retryChunks = array_chunk($failedLinks, CampaignDomainChunk::CHUNK_SIZE);
-            foreach ($retryChunks as $retryIndex => $retryLinks) {
-                CampaignDomainChunk::create([
-                    'campaign_id' => $campaign->id,
-                    'campaign_domain_id' => $chunk->campaign_domain_id,
-                    'chunk_index' => $chunk->chunk_index + 1000 + $retryIndex,
-                    'links_payload' => $retryLinks,
-                    'status' => 'pending',
-                ]);
-                $totalRetrying += count($retryLinks);
-            }
-
-            $remainingLinks = array_values(array_filter($linksPayload, fn ($v, $k) => ! in_array($k, $failedIndices, true), ARRAY_FILTER_USE_BOTH));
-            $remainingResults = array_values(array_filter($resultsPayload, fn ($v, $k) => ! in_array($k, $failedIndices, true), ARRAY_FILTER_USE_BOTH));
-
-            if ($remainingLinks === []) {
-                $chunk->delete();
-                continue;
-            }
-
-            $remainingSuccess = 0;
-            $remainingFailed = 0;
-            foreach ($remainingResults as $r) {
-                if (CampaignDomainChunk::isFailedLinkResult($r)) {
-                    $remainingFailed++;
-                } else {
-                    $remainingSuccess++;
-                }
-            }
-
-            $chunk->update([
-                'links_payload' => $remainingLinks,
-                'results_payload' => $remainingResults,
-                'success_count' => $remainingSuccess,
-                'failed_count' => $remainingFailed,
-                'status' => $remainingFailed > 0 ? CampaignDomainChunk::STATUS_PARTIAL : CampaignDomainChunk::STATUS_COMPLETED,
-            ]);
+        if ($campaign->status === 'deleting') {
+            return back()->with('error', 'Cannot retry failed links while campaign deletion is in progress.');
         }
-        if ($totalRetrying === 0) {
+
+        $failedChunks = CampaignDomainChunk::where('campaign_id', $campaign->id)->where('failed_count', '>', 0)->count();
+        if ($failedChunks === 0) {
             return back()->with('info', 'No failed links to retry.');
         }
 
-        $campaign->recalculateCounters();
+        RetryFailedCampaignChunksJob::dispatch($campaign->id);
         $campaign->update(['status' => 'processing']);
 
-        return back()->with('success', 'Retrying '.$totalRetrying.' failed link(s). Use "Publish pending chunks" to send them.');
+        return back()->with('success', 'Retry queued for '.number_format((int) ($campaign->failed_count ?? 0)).' failed link(s). Refresh in a moment, then use Publish pending to send them. Queue worker: campaign_links.');
     }
 
     public function publishPending(Campaign $campaign)
@@ -467,7 +425,7 @@ class CampaignController extends Controller
 
         $staleBefore = now()->subMinutes(10);
 
-        $candidates = CampaignDomainChunk::where('campaign_id', $campaign->id)
+        $candidateIds = CampaignDomainChunk::where('campaign_id', $campaign->id)
             ->where(function ($q) use ($staleBefore) {
                 $q->where('status', CampaignDomainChunk::STATUS_PENDING)
                     ->orWhere(function ($qq) use ($staleBefore) {
@@ -481,19 +439,20 @@ class CampaignController extends Controller
             })
             ->orderBy('campaign_domain_id')
             ->orderBy('chunk_index')
-            ->get();
+            ->pluck('id');
 
-        if ($candidates->isEmpty()) {
+        if ($candidateIds->isEmpty()) {
             $campaign->recalculateCounters();
 
             return back()->with('info', 'No pending/stale chunks to publish.');
         }
 
-        CampaignDomainChunk::whereIn('id', $candidates->pluck('id'))
+        CampaignDomainChunk::whereIn('id', $candidateIds)
             ->update(['status' => CampaignDomainChunk::STATUS_PENDING]);
 
         $pending = CampaignDomainChunk::where('campaign_id', $campaign->id)
             ->where('status', CampaignDomainChunk::STATUS_PENDING)
+            ->select(['id', 'campaign_id', 'campaign_domain_id', 'chunk_index'])
             ->orderBy('campaign_domain_id')
             ->orderBy('chunk_index')
             ->get();
