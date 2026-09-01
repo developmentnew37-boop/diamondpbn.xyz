@@ -24,6 +24,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/batches/create', [BatchController::class, 'create'])->name('batches.create');
     Route::post('/batches', [BatchController::class, 'store'])->name('batches.store');
     Route::get('/batches/{batch}', [BatchController::class, 'show'])->name('batches.show');
+    Route::get('/batches/{batch}/failed-links', [BatchController::class, 'failedLinks'])->name('batches.failed-links');
     Route::get('/batches/{batch}/export-domains', [BatchController::class, 'exportDomains'])->name('batches.export-domains');
     Route::get('/batches/{batch}/domains/{domain}', [BatchController::class, 'showDomain'])->name('batches.show-domain');
     Route::post('/batches/{batch}/retry-failed', [BatchController::class, 'retryFailed'])->name('batches.retry-failed');
@@ -36,6 +37,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/wp-batches/create', [WpBatchController::class, 'create'])->name('wp-batches.create');
     Route::post('/wp-batches', [WpBatchController::class, 'store'])->name('wp-batches.store');
     Route::get('/wp-batches/{wpBatch}', [WpBatchController::class, 'show'])->name('wp-batches.show');
+    Route::get('/wp-batches/{wpBatch}/failed-links', [WpBatchController::class, 'failedLinks'])->name('wp-batches.failed-links');
     Route::get('/wp-batches/{wpBatch}/export-domains', [WpBatchController::class, 'exportDomains'])->name('wp-batches.export-domains');
     Route::get('/wp-batches/{wpBatch}/domains/{wpSite}', [WpBatchController::class, 'showDomain'])->name('wp-batches.show-domain');
     Route::post('/wp-batches/{wpBatch}/retry-failed', [WpBatchController::class, 'retryFailed'])->name('wp-batches.retry-failed');

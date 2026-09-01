@@ -16,6 +16,7 @@ use App\Support\UnicodeUrl;
 use App\Support\Workspace;
 use App\Support\WpBatchDeletionTracker;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class WpBatchController extends Controller
@@ -160,18 +161,15 @@ class WpBatchController extends Controller
         return redirect()->route('wp-batches.show', $wpBatch)->with('success', 'WP batch created. Links are being published to remote sites via the queue. Run the queue worker (queue: wp_batch_links) and refresh to see progress.');
     }
 
-    public function show(WpBatch $wpBatch)
+    public function show(Request $request, WpBatch $wpBatch)
     {
         Workspace::assertCanManageRun($wpBatch->user_id);
 
         $siteStats = $this->buildSiteStatsForBatch($wpBatch);
         $problemSiteCount = collect($siteStats)->where('is_problem', true)->count();
 
-        $links = $wpBatch->wpLinks()->orderBy('id')->get(['id', 'wp_batch_id', 'url', 'keyword', 'no_follow']);
-        $failedLinksLimit = 500;
-        $failedLinks = $this->getFailedLinksForBatch($wpBatch, $failedLinksLimit);
+        $links = $this->paginateWpBatchLinks($request, $wpBatch);
         $failedLinksTotal = (int) ($wpBatch->failed_count ?? 0);
-        $failedLinksTruncated = $failedLinksTotal > count($failedLinks);
         $hasPendingChunks = WpBatchSiteChunk::where('wp_batch_id', $wpBatch->id)
             ->whereIn('status', [WpBatchSiteChunk::STATUS_PENDING, WpBatchSiteChunk::STATUS_PROCESSING])
             ->exists();
@@ -180,11 +178,26 @@ class WpBatchController extends Controller
             'wpBatch',
             'siteStats',
             'links',
-            'failedLinks',
             'failedLinksTotal',
-            'failedLinksTruncated',
             'hasPendingChunks',
             'problemSiteCount'
+        ));
+    }
+
+    public function failedLinks(WpBatch $wpBatch)
+    {
+        Workspace::assertCanManageRun($wpBatch->user_id);
+
+        $failedLinksLimit = 500;
+        $failedLinks = $this->getFailedLinksForBatch($wpBatch, $failedLinksLimit);
+        $failedLinksTotal = (int) ($wpBatch->failed_count ?? 0);
+        $failedLinksTruncated = $failedLinksTotal > count($failedLinks);
+
+        return view('wp-batches.partials.failed-links-table', compact(
+            'wpBatch',
+            'failedLinks',
+            'failedLinksTotal',
+            'failedLinksTruncated'
         ));
     }
 
@@ -363,10 +376,12 @@ class WpBatchController extends Controller
     {
         $batchSettled = in_array($wpBatch->status, ['completed', 'partial', 'failed', 'delete_failed'], true);
 
-        $linkCountExpr = 'CASE WHEN COALESCE(wp_batch_site_chunks.links_count, 0) > 0'
-            .' THEN wp_batch_site_chunks.links_count'
-            .' ELSE COALESCE(JSON_LENGTH(wp_batch_site_chunks.links_payload), 0)'
-            .' END';
+        $linkCountExpr = Schema::hasColumn('wp_batch_site_chunks', 'links_count')
+            ? 'CASE WHEN COALESCE(wp_batch_site_chunks.links_count, 0) > 0'
+                .' THEN wp_batch_site_chunks.links_count'
+                .' ELSE COALESCE(JSON_LENGTH(wp_batch_site_chunks.links_payload), 0)'
+                .' END'
+            : 'COALESCE(JSON_LENGTH(wp_batch_site_chunks.links_payload), 0)';
 
         $rows = WpBatchSiteChunk::query()
             ->where('wp_batch_site_chunks.wp_batch_id', $wpBatch->id)
@@ -483,6 +498,28 @@ class WpBatchController extends Controller
         }
 
         return $failed;
+    }
+
+    /**
+     * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator<int, \App\Models\WpLink>
+     */
+    private function paginateWpBatchLinks(Request $request, WpBatch $wpBatch)
+    {
+        $search = substr(trim((string) $request->input('links_search', '')), 0, 100);
+        $query = $wpBatch->wpLinks()->orderBy('id');
+
+        if ($search !== '') {
+            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $search);
+            $term = '%'.$escaped.'%';
+            $query->where(function ($q) use ($term) {
+                $q->where('url', 'like', $term)
+                    ->orWhere('keyword', 'like', $term);
+            });
+        }
+
+        return $query
+            ->paginate(100, ['id', 'wp_batch_id', 'url', 'keyword', 'no_follow'], 'links_page')
+            ->withQueryString();
     }
 
     public function destroyLink(WpBatch $wpBatch, WpLink $wpLink)

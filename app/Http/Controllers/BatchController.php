@@ -17,6 +17,7 @@ use App\Support\ReplaceFailedChunkLink;
 use App\Support\UnicodeUrl;
 use App\Support\Workspace;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class BatchController extends Controller
@@ -181,18 +182,15 @@ class BatchController extends Controller
         return redirect()->route('batches.show', $batch)->with('success', 'Batch created. Links are being published to remote domains via the queue. Run the queue worker (queue: batch_links) and refresh to see progress.');
     }
 
-    public function show(Batch $batch)
+    public function show(Request $request, Batch $batch)
     {
         Workspace::assertCanManageRun($batch->user_id);
 
         $domainStats = $this->buildDomainStatsForBatch($batch);
         $problemDomainCount = collect($domainStats)->where('is_problem', true)->count();
 
-        $links = $batch->links()->orderBy('id')->get(['id', 'batch_id', 'url', 'keyword', 'no_follow']);
-        $failedLinksLimit = 500;
-        $failedLinks = $this->getFailedLinksForBatch($batch, $failedLinksLimit);
+        $links = $this->paginateBatchLinks($request, $batch);
         $failedLinksTotal = (int) ($batch->failed_count ?? 0);
-        $failedLinksTruncated = $failedLinksTotal > count($failedLinks);
         $hasPendingChunks = BatchDomainChunk::where('batch_id', $batch->id)
             ->whereIn('status', [BatchDomainChunk::STATUS_PENDING, BatchDomainChunk::STATUS_PROCESSING])
             ->exists();
@@ -201,11 +199,26 @@ class BatchController extends Controller
             'batch',
             'domainStats',
             'links',
-            'failedLinks',
             'failedLinksTotal',
-            'failedLinksTruncated',
             'hasPendingChunks',
             'problemDomainCount'
+        ));
+    }
+
+    public function failedLinks(Batch $batch)
+    {
+        Workspace::assertCanManageRun($batch->user_id);
+
+        $failedLinksLimit = 500;
+        $failedLinks = $this->getFailedLinksForBatch($batch, $failedLinksLimit);
+        $failedLinksTotal = (int) ($batch->failed_count ?? 0);
+        $failedLinksTruncated = $failedLinksTotal > count($failedLinks);
+
+        return view('batches.partials.failed-links-table', compact(
+            'batch',
+            'failedLinks',
+            'failedLinksTotal',
+            'failedLinksTruncated'
         ));
     }
 
@@ -395,10 +408,12 @@ class BatchController extends Controller
     {
         $batchSettled = in_array($batch->status, ['completed', 'partial', 'failed', 'delete_failed'], true);
 
-        $linkCountExpr = 'CASE WHEN COALESCE(batch_domain_chunks.links_count, 0) > 0'
-            .' THEN batch_domain_chunks.links_count'
-            .' ELSE COALESCE(JSON_LENGTH(batch_domain_chunks.links_payload), 0)'
-            .' END';
+        $linkCountExpr = Schema::hasColumn('batch_domain_chunks', 'links_count')
+            ? 'CASE WHEN COALESCE(batch_domain_chunks.links_count, 0) > 0'
+                .' THEN batch_domain_chunks.links_count'
+                .' ELSE COALESCE(JSON_LENGTH(batch_domain_chunks.links_payload), 0)'
+                .' END'
+            : 'COALESCE(JSON_LENGTH(batch_domain_chunks.links_payload), 0)';
 
         $rows = BatchDomainChunk::query()
             ->where('batch_domain_chunks.batch_id', $batch->id)
@@ -515,6 +530,28 @@ class BatchController extends Controller
         }
 
         return $failed;
+    }
+
+    /**
+     * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator<int, \App\Models\Link>
+     */
+    private function paginateBatchLinks(Request $request, Batch $batch)
+    {
+        $search = substr(trim((string) $request->input('links_search', '')), 0, 100);
+        $query = $batch->links()->orderBy('id');
+
+        if ($search !== '') {
+            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $search);
+            $term = '%'.$escaped.'%';
+            $query->where(function ($q) use ($term) {
+                $q->where('url', 'like', $term)
+                    ->orWhere('keyword', 'like', $term);
+            });
+        }
+
+        return $query
+            ->paginate(100, ['id', 'batch_id', 'url', 'keyword', 'no_follow'], 'links_page')
+            ->withQueryString();
     }
 
     public function destroyLink(Batch $batch, Link $link)

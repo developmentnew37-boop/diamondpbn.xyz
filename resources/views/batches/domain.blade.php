@@ -149,5 +149,7 @@
         </div>
     </div>
 </div>
+@if(Route::has('batches.replace-failed-link'))
 @include('partials.replace-failed-link-modal', ['action' => route('batches.replace-failed-link', $batch)])
+@endif
 @endsection

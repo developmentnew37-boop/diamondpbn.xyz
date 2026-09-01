@@ -79,5 +79,7 @@
         </div>
     </div>
 </div>
+@if(Route::has('campaigns.replace-failed-link'))
 @include('partials.replace-failed-link-modal', ['action' => route('campaigns.replace-failed-link', $campaign)])
+@endif
 @endsection

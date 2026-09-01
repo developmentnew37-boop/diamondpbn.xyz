@@ -149,5 +149,7 @@
         </div>
     </div>
 </div>
+@if(Route::has('wp-batches.replace-failed-link'))
 @include('partials.replace-failed-link-modal', ['action' => route('wp-batches.replace-failed-link', $wpBatch)])
+@endif
 @endsection

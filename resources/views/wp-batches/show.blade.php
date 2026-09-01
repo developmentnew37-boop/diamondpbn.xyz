@@ -128,11 +128,13 @@
                             </form>
                         @endif
                         @if(($wpBatch->failed_count ?? 0) > 0 && ($wpBatch->status ?? '') !== 'paused')
-                            <button type="button" onclick="document.getElementById('errors-modal').classList.remove('hidden')" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors">
+                            @if(Route::has('wp-batches.failed-links'))
+                            <button type="button" id="view-errors-btn" data-failed-links-url="{{ route('wp-batches.failed-links', $wpBatch) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                                 View errors
                                 <span class="tabular-nums text-slate-500">({{ number_format($wpBatch->failed_count) }})</span>
                             </button>
+                            @endif
                             <form method="POST" action="{{ route('wp-batches.retry-failed', $wpBatch) }}" class="inline">
                                 @csrf
                                 <button type="submit" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors">
@@ -248,13 +250,16 @@
         <div class="px-4 sm:px-6 py-4 border-b border-slate-200">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
-                    <h3 class="text-lg font-semibold text-slate-800">All Links ({{ count($links ?? []) }})</h3>
+                    <h3 class="text-lg font-semibold text-slate-800">All Links ({{ number_format($links->total()) }})</h3>
                     <p class="text-sm text-slate-500 mt-0.5">URL and keyword pairs in this batch</p>
                 </div>
-                <div class="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-                    <input type="text" id="links-search" placeholder="Search URL or keyword..." class="w-full sm:w-64 rounded-lg border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 text-sm">
-                    <span id="links-search-count" class="text-sm text-slate-500 whitespace-nowrap"></span>
-                </div>
+                <form method="GET" action="{{ route('wp-batches.show', $wpBatch) }}" class="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+                    <input type="text" name="links_search" value="{{ request('links_search') }}" placeholder="Search URL or keyword..." class="w-full sm:w-64 rounded-lg border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 text-sm">
+                    <button type="submit" class="px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50">Search</button>
+                    @if(request('links_search'))
+                        <a href="{{ route('wp-batches.show', $wpBatch) }}" class="text-sm text-slate-500 hover:text-slate-700 whitespace-nowrap">Clear</a>
+                    @endif
+                </form>
             </div>
         </div>
         <div class="overflow-x-auto max-h-96 overflow-y-auto">
@@ -268,9 +273,9 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-200">
-                    @forelse($links ?? [] as $i => $link)
-                        <tr class="hover:bg-slate-50/50 transition-colors link-row" data-url="{{ strtolower($link->url) }}" data-keyword="{{ strtolower($link->keyword) }}">
-                            <td class="px-6 py-3 text-sm text-slate-500">{{ $i + 1 }}</td>
+                    @forelse($links as $i => $link)
+                        <tr class="hover:bg-slate-50/50 transition-colors">
+                            <td class="px-6 py-3 text-sm text-slate-500">{{ ($links->firstItem() ?? 1) + $i }}</td>
                             <td class="px-6 py-3 text-sm text-slate-800 break-all max-w-xs">{{ $link->url }}</td>
                             <td class="px-6 py-3 text-sm text-slate-700">{{ $link->keyword }}</td>
                             <td class="px-6 py-3 text-right">
@@ -293,6 +298,9 @@
                 </tbody>
             </table>
         </div>
+        @if($links->hasPages())
+            <div class="px-4 sm:px-6 py-4 border-t border-slate-200">{{ $links->links() }}</div>
+        @endif
     </div>
 </div>
 
@@ -310,77 +318,46 @@
                 </h3>
                 <button type="button" onclick="document.getElementById('errors-modal').classList.add('hidden')" class="text-slate-500 hover:text-slate-700">✕</button>
             </div>
-            <div class="flex-1 overflow-y-auto p-6">
-                @if(!empty($failedLinksTruncated))
-                    <p class="text-sm text-slate-600 mb-4">Showing the first {{ number_format(count($failedLinks ?? [])) }} failures. Use per-site <strong>View</strong> or export for full details.</p>
-                @endif
-                <table class="min-w-full divide-y divide-slate-200 text-sm">
-                    <thead>
-                        <tr>
-                            <th class="text-left py-2 font-medium text-slate-600">Site</th>
-                            <th class="text-left py-2 font-medium text-slate-600">URL / Keyword</th>
-                            <th class="text-left py-2 font-medium text-slate-600">Error</th>
-                            <th class="text-right py-2 font-medium text-slate-600">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @foreach($failedLinks ?? [] as $item)
-                            <tr>
-                                <td class="py-2 text-slate-700">{{ $item->wpSite->domain ?? 'N/A' }}</td>
-                                <td class="py-2 text-slate-600">{{ Str::limit($item->url ?? '-', 40) }} → {{ Str::limit($item->keyword ?? '-', 20) }}</td>
-                                <td class="py-2 text-red-600">{{ $item->error_message ?? '-' }}</td>
-                                <td class="py-2 text-right">
-                                    @if(! in_array($item->chunk_status ?? '', ['pending', 'processing'], true) && ! empty($item->chunk_id))
-                                    <button type="button" title="Replace URL/keyword, then Retry failed"
-                                        data-chunk-id="{{ $item->chunk_id }}"
-                                        data-link-index="{{ $item->link_index }}"
-                                        data-url="{{ $item->url }}"
-                                        data-keyword="{{ $item->keyword }}"
-                                        onclick="openReplaceFailedModal(this)"
-                                        class="px-2 py-1 text-xs font-medium rounded-lg border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors">
-                                        Replace
-                                    </button>
-                                    @endif
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
+            <div id="failed-links-body" class="flex-1 overflow-y-auto p-6">
+                <p class="text-sm text-slate-500">Loading failed links…</p>
             </div>
         </div>
     </div>
 </div>
-@include('partials.replace-failed-link-modal', ['action' => route('wp-batches.replace-failed-link', $wpBatch)])
+@if(Route::has('wp-batches.replace-failed-link'))
+    @include('partials.replace-failed-link-modal', ['action' => route('wp-batches.replace-failed-link', $wpBatch)])
+@endif
 @endif
 @endsection
 
 @section('scripts')
 <script>
 (function() {
-    const search = document.getElementById('links-search');
-    const countEl = document.getElementById('links-search-count');
-    const rows = document.querySelectorAll('.link-row');
-    const total = rows.length;
-
-    function updateFilter() {
-        const q = (search?.value || '').trim().toLowerCase();
-        let visible = 0;
-        rows.forEach(function(row) {
-            const url = row.getAttribute('data-url') || '';
-            const keyword = row.getAttribute('data-keyword') || '';
-            const match = !q || url.includes(q) || keyword.includes(q);
-            row.style.display = match ? '' : 'none';
-            if (match) visible++;
-        });
-        if (countEl) {
-            countEl.textContent = q ? 'Showing ' + visible + ' of ' + total : '';
+    const btn = document.getElementById('view-errors-btn');
+    const modal = document.getElementById('errors-modal');
+    const body = document.getElementById('failed-links-body');
+    let loaded = false;
+    if (!btn || !modal || !body) {
+        return;
+    }
+    btn.addEventListener('click', async function () {
+        modal.classList.remove('hidden');
+        if (loaded) {
+            return;
         }
-    }
-
-    if (search) {
-        search.addEventListener('input', updateFilter);
-        search.addEventListener('keyup', updateFilter);
-    }
+        try {
+            const res = await fetch(btn.getAttribute('data-failed-links-url'), {
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' },
+            });
+            if (!res.ok) {
+                throw new Error('Failed to load');
+            }
+            body.innerHTML = await res.text();
+            loaded = true;
+        } catch (e) {
+            body.innerHTML = '<p class="text-sm text-red-600">Could not load failed links. Try again or use per-site View.</p>';
+        }
+    });
 })();
 
 (function() {
