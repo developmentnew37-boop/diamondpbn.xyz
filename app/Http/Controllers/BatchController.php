@@ -14,7 +14,9 @@ use App\Models\Domain;
 use App\Models\Link;
 use App\Services\PbnApiService;
 use App\Support\PbnSettings;
+use App\Support\PublishPendingChunks;
 use App\Support\ReplaceFailedChunkLink;
+use App\Support\RunProgress;
 use App\Support\UnicodeUrl;
 use App\Support\Workspace;
 use Illuminate\Http\Request;
@@ -195,6 +197,16 @@ class BatchController extends Controller
         $hasPendingChunks = BatchDomainChunk::where('batch_id', $batch->id)
             ->whereIn('status', [BatchDomainChunk::STATUS_PENDING, BatchDomainChunk::STATUS_PROCESSING])
             ->exists();
+        $isRetrying = RunProgress::isRetrying('batch', $batch->id);
+        $publishingCount = RunProgress::publishingCount('batch', $batch->id);
+
+        if (! $hasPendingChunks && ! $isRetrying) {
+            $batch = $batch->recalculateCounters(true);
+            if ($publishingCount > 0) {
+                RunProgress::clearPublishing('batch', $batch->id);
+                $publishingCount = 0;
+            }
+        }
 
         return view('batches.show', compact(
             'batch',
@@ -202,7 +214,9 @@ class BatchController extends Controller
             'links',
             'failedLinksTotal',
             'hasPendingChunks',
-            'problemDomainCount'
+            'problemDomainCount',
+            'isRetrying',
+            'publishingCount'
         ));
     }
 
@@ -353,54 +367,14 @@ class BatchController extends Controller
             return back()->with('info', 'Cannot publish while batch deletion is in progress.');
         }
 
-        // Some chunks can get "stuck" in processing (worker killed mid-request, timeout, etc.).
-        // Re-queue:
-        // - anything pending
-        // - anything processing with an error_message
-        // - anything processing that has been processing for a while (stale)
-        $staleBefore = now()->subMinutes(10);
-
-        $candidateIds = BatchDomainChunk::where('batch_id', $batch->id)
-            ->where(function ($q) use ($staleBefore) {
-                $q->where('status', BatchDomainChunk::STATUS_PENDING)
-                    ->orWhere(function ($qq) use ($staleBefore) {
-                        $qq->where('status', BatchDomainChunk::STATUS_PROCESSING)
-                            ->where(function ($qqq) use ($staleBefore) {
-                                $qqq->whereNotNull('error_message')
-                                    ->orWhereNull('sent_at')
-                                    ->orWhere('sent_at', '<', $staleBefore);
-                            });
-                    });
-            })
-            ->orderBy('domain_id')
-            ->orderBy('chunk_index')
-            ->pluck('id');
-
-        if ($candidateIds->isEmpty()) {
-            $batch->recalculateCounters();
+        $queued = PublishPendingChunks::forBatch($batch);
+        if ($queued === 0) {
+            $batch->recalculateCounters(true);
 
             return back()->with('info', 'No pending/stale chunks to publish.');
         }
 
-        // Ensure all candidates are pending so the job will run (job ignores non-pending chunks).
-        BatchDomainChunk::whereIn('id', $candidateIds)
-            ->update(['status' => BatchDomainChunk::STATUS_PENDING]);
-
-        $pending = BatchDomainChunk::where('batch_id', $batch->id)
-            ->where('status', BatchDomainChunk::STATUS_PENDING)
-            ->select(['id', 'batch_id', 'domain_id', 'chunk_index'])
-            ->orderBy('domain_id')
-            ->orderBy('chunk_index')
-            ->get();
-
-        $batch->update(['status' => 'processing', 'started_at' => $batch->started_at ?? now()]);
-
-        $delaySeconds = PbnSettings::getLinkDelaySeconds();
-        foreach ($pending as $index => $chunk) {
-            PublishBatchChunkJob::dispatch($chunk)->delay(now()->addSeconds($index * $delaySeconds));
-        }
-
-        return back()->with('success', 'Queued '.$pending->count().' pending/stale chunk(s). Run the queue worker (batch_links) and refresh to see progress.');
+        return back()->with('success', 'Publishing '.$queued.' pending/stale chunk(s). Status is now Processing. Refresh to see progress.');
     }
 
     /**
@@ -624,10 +598,14 @@ class BatchController extends Controller
             return back()->with('info', 'No failed links to retry.');
         }
 
+        if (! RunProgress::markRetrying('batch', $batch->id)) {
+            return back()->with('info', 'Retry is already running. Refresh to see progress.');
+        }
+
         RetryFailedBatchChunksJob::dispatch($batch->id);
         $batch->update(['status' => 'processing']);
 
-        return back()->with('success', 'Retry queued for '.number_format((int) ($batch->failed_count ?? 0)).' failed link(s). Refresh in a moment, then use Publish pending to send them. Queue worker: batch_links.');
+        return back()->with('success', 'Retrying '.number_format((int) ($batch->failed_count ?? 0)).' failed link(s). Status is now Processing. Pending chunks publish automatically when retry finishes.');
     }
 
     public function destroyDomain(Batch $batch, Domain $domain)

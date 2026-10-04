@@ -11,8 +11,11 @@ use App\Models\WpBatch;
 use App\Models\WpBatchSiteChunk;
 use App\Models\WpLink;
 use App\Models\WpSite;
+use App\Models\WpSiteCategory;
 use App\Support\PbnSettings;
+use App\Support\PublishPendingChunks;
 use App\Support\ReplaceFailedChunkLink;
+use App\Support\RunProgress;
 use App\Support\UnicodeUrl;
 use App\Support\Workspace;
 use App\Support\WpBatchDeletionTracker;
@@ -58,9 +61,21 @@ class WpBatchController extends Controller
 
     public function create()
     {
-        $wpSites = WpSite::where('user_id', Workspace::ownerId())->where('status', 'active')->get();
+        $wpSites = WpSite::where('user_id', Workspace::ownerId())
+            ->where('status', 'active')
+            ->with('wpSiteCategory')
+            ->orderBy('domain')
+            ->get();
 
-        return view('wp-batches.create', compact('wpSites'));
+        $categories = WpSiteCategory::catalog()
+            ->withCount(['wpSites' => fn ($q) => $q
+                ->where('user_id', Workspace::ownerId())
+                ->where('status', 'active')])
+            ->get();
+
+        $uncategorizedCount = $wpSites->whereNull('wp_site_category_id')->count();
+
+        return view('wp-batches.create', compact('wpSites', 'categories', 'uncategorizedCount'));
     }
 
     public function store(Request $request)
@@ -174,6 +189,16 @@ class WpBatchController extends Controller
         $hasPendingChunks = WpBatchSiteChunk::where('wp_batch_id', $wpBatch->id)
             ->whereIn('status', [WpBatchSiteChunk::STATUS_PENDING, WpBatchSiteChunk::STATUS_PROCESSING])
             ->exists();
+        $isRetrying = RunProgress::isRetrying('wp-batch', $wpBatch->id);
+        $publishingCount = RunProgress::publishingCount('wp-batch', $wpBatch->id);
+
+        if (! $hasPendingChunks && ! $isRetrying) {
+            $wpBatch = $wpBatch->recalculateCounters(true);
+            if ($publishingCount > 0) {
+                RunProgress::clearPublishing('wp-batch', $wpBatch->id);
+                $publishingCount = 0;
+            }
+        }
 
         return view('wp-batches.show', compact(
             'wpBatch',
@@ -181,7 +206,9 @@ class WpBatchController extends Controller
             'links',
             'failedLinksTotal',
             'hasPendingChunks',
-            'problemSiteCount'
+            'problemSiteCount',
+            'isRetrying',
+            'publishingCount'
         ));
     }
 
@@ -330,48 +357,14 @@ class WpBatchController extends Controller
             return back()->with('info', 'Cannot publish while WP batch deletion is in progress.');
         }
 
-        $staleBefore = now()->subMinutes(10);
-
-        $candidateIds = WpBatchSiteChunk::where('wp_batch_id', $wpBatch->id)
-            ->where(function ($q) use ($staleBefore) {
-                $q->where('status', WpBatchSiteChunk::STATUS_PENDING)
-                    ->orWhere(function ($qq) use ($staleBefore) {
-                        $qq->where('status', WpBatchSiteChunk::STATUS_PROCESSING)
-                            ->where(function ($qqq) use ($staleBefore) {
-                                $qqq->whereNotNull('error_message')
-                                    ->orWhereNull('sent_at')
-                                    ->orWhere('sent_at', '<', $staleBefore);
-                            });
-                    });
-            })
-            ->orderBy('wp_site_id')
-            ->orderBy('chunk_index')
-            ->pluck('id');
-
-        if ($candidateIds->isEmpty()) {
-            $wpBatch->recalculateCounters();
+        $queued = PublishPendingChunks::forWpBatch($wpBatch);
+        if ($queued === 0) {
+            $wpBatch->recalculateCounters(true);
 
             return back()->with('info', 'No pending/stale chunks to publish.');
         }
 
-        WpBatchSiteChunk::whereIn('id', $candidateIds)
-            ->update(['status' => WpBatchSiteChunk::STATUS_PENDING]);
-
-        $pending = WpBatchSiteChunk::where('wp_batch_id', $wpBatch->id)
-            ->where('status', WpBatchSiteChunk::STATUS_PENDING)
-            ->select(['id', 'wp_batch_id', 'wp_site_id', 'chunk_index'])
-            ->orderBy('wp_site_id')
-            ->orderBy('chunk_index')
-            ->get();
-
-        $wpBatch->update(['status' => 'processing', 'started_at' => $wpBatch->started_at ?? now()]);
-
-        $delaySeconds = PbnSettings::getLinkDelaySeconds();
-        foreach ($pending as $index => $chunk) {
-            PublishWpBatchChunkJob::dispatch($chunk)->delay(now()->addSeconds($index * $delaySeconds));
-        }
-
-        return back()->with('success', 'Queued '.$pending->count().' pending/stale chunk(s). Run the queue worker (wp_batch_links) and refresh to see progress.');
+        return back()->with('success', 'Publishing '.$queued.' pending/stale chunk(s). Status is now Processing. Refresh to see progress.');
     }
 
     private function buildSiteStatsForBatch(WpBatch $wpBatch): array
@@ -592,10 +585,14 @@ class WpBatchController extends Controller
             return back()->with('info', 'No failed links to retry.');
         }
 
+        if (! RunProgress::markRetrying('wp-batch', $wpBatch->id)) {
+            return back()->with('info', 'Retry is already running. Refresh to see progress.');
+        }
+
         RetryFailedWpBatchChunksJob::dispatch($wpBatch->id);
         $wpBatch->update(['status' => 'processing']);
 
-        return back()->with('success', 'Retry queued for '.number_format((int) ($wpBatch->failed_count ?? 0)).' failed link(s). Refresh in a moment, then use Publish pending to send them. Queue worker: wp_batch_links.');
+        return back()->with('success', 'Retrying '.number_format((int) ($wpBatch->failed_count ?? 0)).' failed link(s). Status is now Processing. Pending chunks publish automatically when retry finishes.');
     }
 
     public function destroyDomain(WpBatch $wpBatch, WpSite $wpSite)

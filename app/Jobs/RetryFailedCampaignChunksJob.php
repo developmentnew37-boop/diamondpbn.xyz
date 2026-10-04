@@ -4,14 +4,15 @@ namespace App\Jobs;
 
 use App\Models\Campaign;
 use App\Models\CampaignDomainChunk;
+use App\Support\PublishPendingChunks;
 use App\Support\RetryFailedChunks;
+use App\Support\RunProgress;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class RetryFailedCampaignChunksJob implements ShouldQueue, ShouldBeUnique
@@ -45,42 +46,30 @@ class RetryFailedCampaignChunksJob implements ShouldQueue, ShouldBeUnique
     {
         $campaign = Campaign::find($this->campaignId);
         if (! $campaign || in_array($campaign->status, ['paused', 'deleting'], true)) {
+            RunProgress::clearRetrying('campaign', $this->campaignId);
+
             return;
         }
 
-        $total = 0;
-
-        while (true) {
-            $retried = (int) DB::transaction(function () {
-                $chunk = CampaignDomainChunk::query()
-                    ->where('campaign_id', $this->campaignId)
-                    ->where('failed_count', '>', 0)
-                    ->orderBy('id')
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $chunk) {
-                    return -1;
-                }
-
-                return RetryFailedChunks::process($chunk);
-            });
-
-            if ($retried < 0) {
-                break;
-            }
-
-            $total += $retried;
+        $total = RetryFailedChunks::retryRun(CampaignDomainChunk::class, 'campaign_id', $this->campaignId);
+        $queued = 0;
+        $campaign = $campaign->fresh();
+        if ($total > 0 && $campaign && ! in_array($campaign->status, ['paused', 'deleting'], true)) {
+            $queued = PublishPendingChunks::forCampaign($campaign);
         }
 
-        $campaign->recalculateCounters();
-        if ($total > 0 && $campaign->fresh()?->status !== 'paused') {
-            $campaign->update(['status' => 'processing']);
-        }
+        $campaign?->recalculateCounters(true);
+        RunProgress::clearRetrying('campaign', $this->campaignId);
 
         Log::info('Retry failed campaign chunks finished', [
             'campaign_id' => $this->campaignId,
             'retried' => $total,
+            'published' => $queued,
         ]);
+    }
+
+    public function failed(?\Throwable $e): void
+    {
+        RunProgress::clearRetrying('campaign', $this->campaignId);
     }
 }

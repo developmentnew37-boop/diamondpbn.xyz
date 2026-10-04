@@ -65,9 +65,14 @@
                                         'partial' => 'bg-orange-100 text-orange-700',
                                         'delete_failed' => 'bg-red-100 text-red-700',
                                         'semi_deleted' => 'bg-violet-100 text-violet-700',
+                                        'retrying' => 'bg-amber-100 text-amber-800',
+                                        'publishing' => 'bg-sky-100 text-sky-700',
                                     ];
+                                    $displayStatus = \App\Support\RunProgress::isRetrying('batch', $batch->id)
+                                        ? 'retrying'
+                                        : (\App\Support\RunProgress::publishingCount('batch', $batch->id) > 0 ? 'publishing' : $batch->status);
                                 @endphp
-                                <span class="px-2.5 py-0.5 text-xs font-medium rounded-full {{ $statusClasses[$batch->status] ?? 'bg-slate-100 text-slate-600' }}">{{ ucwords(str_replace('_', ' ', $batch->status)) }}</span>
+                                <span class="px-2.5 py-0.5 text-xs font-medium rounded-full {{ $statusClasses[$displayStatus] ?? 'bg-slate-100 text-slate-600' }}">{{ ucwords(str_replace('_', ' ', $displayStatus)) }}</span>
                             </td>
                             <td class="px-6 py-4 text-sm text-slate-600">{{ $batch->total_links ?? 0 }}</td>
                             <td class="px-6 py-4 text-sm text-slate-600">{{ $batch->total_domains ?? 0 }}</td>

@@ -6,9 +6,12 @@
 @php
     $statusFilter = $statusFilter ?? 'all';
     $statusCounts = $statusCounts ?? ['all' => 0, 'active' => 0, 'inactive' => 0, 'error' => 0];
+    $categories = $categories ?? collect();
+    $categoryFilter = $categoryFilter ?? 'all';
     $listQuery = array_filter([
         'search' => ($search ?? '') !== '' ? $search : null,
         'status' => $statusFilter !== 'all' ? $statusFilter : null,
+        'category' => $categoryFilter !== 'all' ? $categoryFilter : null,
     ], fn ($v) => $v !== null && $v !== '');
 @endphp
 <div class="page-enter">
@@ -21,6 +24,9 @@
             <form method="GET" action="{{ route('wp-sites.index') }}" class="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                 @if($statusFilter !== 'all')
                     <input type="hidden" name="status" value="{{ $statusFilter }}">
+                @endif
+                @if($categoryFilter !== 'all')
+                    <input type="hidden" name="category" value="{{ $categoryFilter }}">
                 @endif
                 <div class="relative">
                     <input
@@ -39,7 +45,7 @@
                     Search
                 </button>
                 @if(($search ?? '') !== '')
-                    <a href="{{ route('wp-sites.index', $statusFilter !== 'all' ? ['status' => $statusFilter] : []) }}" class="text-xs text-slate-500 hover:text-slate-700">Clear</a>
+                    <a href="{{ route('wp-sites.index', array_filter(['status' => $statusFilter !== 'all' ? $statusFilter : null, 'category' => $categoryFilter !== 'all' ? $categoryFilter : null])) }}" class="text-xs text-slate-500 hover:text-slate-700">Clear</a>
                 @endif
             </form>
             <form action="{{ route('wp-sites.check-all', $listQuery) }}" method="POST" class="inline w-full sm:w-auto">
@@ -75,14 +81,71 @@
             </button>
         </div>
     </div>
-    <form method="POST" action="{{ route('wp-sites.bulk-destroy') }}" id="bulk-delete-form" class="hidden mb-4 flex items-center gap-3 px-4 py-3 bg-slate-50 rounded-xl border border-slate-200" onsubmit="return confirm('Delete selected WP sites? All related data will be removed.');">
+    <form method="POST" action="{{ route('wp-sites.bulk-destroy') }}" id="bulk-sites-form" class="hidden mb-4 flex flex-wrap items-center gap-3 px-4 py-3 bg-slate-50 rounded-xl border border-slate-200">
         @csrf
         <span id="bulk-count" class="text-sm text-slate-600 font-medium">0 selected</span>
-        <button type="submit" class="px-3 py-1.5 text-sm font-medium rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors">
+        <select name="wp_site_category_id" class="rounded-lg border-slate-300 text-sm focus:border-sky-500 focus:ring-sky-500">
+            <option value="">Clear category</option>
+            @foreach($categories as $category)
+                <option value="{{ $category->id }}">{{ $category->name }}</option>
+            @endforeach
+        </select>
+        <button type="submit" formaction="{{ route('wp-sites.bulk-category') }}" class="px-3 py-1.5 text-sm font-medium rounded-lg bg-sky-100 text-sky-700 hover:bg-sky-200 transition-colors">
+            Set category
+        </button>
+        <button type="submit" formaction="{{ route('wp-sites.bulk-destroy') }}" class="px-3 py-1.5 text-sm font-medium rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors" onclick="return confirm('Delete selected WP sites? All related data will be removed.');">
             Delete Selected
         </button>
         <button type="button" onclick="clearSelection()" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800">Clear</button>
     </form>
+
+    <div class="mb-6 grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <h3 class="text-sm font-semibold text-slate-800 mb-3">Categories</h3>
+            <p class="text-xs text-slate-500 mb-3">Shared for every account. Deleting a category unassigns sites; it does not delete them.</p>
+            <form method="POST" action="{{ route('wp-sites.categories.store') }}" class="flex flex-col sm:flex-row gap-2 mb-4">
+                @csrf
+                <input type="text" name="name" maxlength="80" required placeholder="New category name" value="{{ old('name') }}" class="flex-1 rounded-lg border-slate-300 text-sm focus:border-sky-500 focus:ring-sky-500">
+                <button type="submit" class="px-3 py-2 bg-sky-600 text-white text-sm rounded-lg hover:bg-sky-700">Add</button>
+            </form>
+            @error('name')<p class="text-red-500 text-xs mb-3">{{ $message }}</p>@enderror
+            @error('name_normalized')<p class="text-red-500 text-xs mb-3">{{ $message }}</p>@enderror
+            <div class="space-y-2 max-h-56 overflow-y-auto">
+                @forelse($categories as $category)
+                    <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+                        <form method="POST" action="{{ route('wp-sites.categories.update', $category) }}" class="flex-1 flex gap-2">
+                            @csrf
+                            @method('PATCH')
+                            <input type="text" name="name" maxlength="80" required value="{{ $category->name }}" class="flex-1 rounded-lg border-slate-300 text-sm focus:border-sky-500 focus:ring-sky-500">
+                            <button type="submit" class="px-2 py-1.5 text-xs font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200">Rename</button>
+                        </form>
+                        <form method="POST" action="{{ route('wp-sites.categories.destroy', $category) }}" onsubmit="return confirm('Delete this category? Sites in it will become uncategorized.');">
+                            @csrf
+                            @method('DELETE')
+                            <button type="submit" class="px-2 py-1.5 text-xs font-medium rounded-lg bg-red-50 text-red-700 hover:bg-red-100">Delete</button>
+                        </form>
+                    </div>
+                @empty
+                    <p class="text-xs text-slate-500">No categories yet.</p>
+                @endforelse
+            </div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+            <h3 class="text-sm font-semibold text-slate-800 mb-3">Set category by paste</h3>
+            <p class="text-xs text-slate-500 mb-3">Choose a category, paste domains (one per line), and apply. Unknown domains are skipped.</p>
+            <form method="POST" action="{{ route('wp-sites.bulk-category-paste') }}" class="space-y-3">
+                @csrf
+                <select name="wp_site_category_id" class="w-full rounded-lg border-slate-300 text-sm focus:border-sky-500 focus:ring-sky-500">
+                    <option value="">Clear category</option>
+                    @foreach($categories as $category)
+                        <option value="{{ $category->id }}">{{ $category->name }}</option>
+                    @endforeach
+                </select>
+                <textarea name="domains" rows="5" required placeholder="example.com&#10;anotherdomain.com" class="w-full rounded-lg border-slate-300 text-sm focus:border-sky-500 focus:ring-sky-500 font-mono"></textarea>
+                <button type="submit" class="px-3 py-2 bg-slate-800 text-white text-sm rounded-lg hover:bg-slate-900">Apply to matching sites</button>
+            </form>
+        </div>
+    </div>
 
     <div class="flex flex-col lg:flex-row gap-4 mb-6 w-full">
         <div class="flex-1 min-w-0 w-full bg-white rounded-xl border border-sky-200 p-4 shadow-sm">
@@ -133,6 +196,33 @@
                 @endforeach
             </div>
         </div>
+        <div class="px-4 sm:px-6 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Filter by category</span>
+            <div class="inline-flex flex-wrap rounded-xl border border-slate-200 bg-slate-100/80 p-1 gap-1">
+                @php
+                    $categoryTabs = collect([
+                        ['key' => 'all', 'label' => 'All'],
+                        ['key' => 'uncategorized', 'label' => 'Uncategorized'],
+                    ])->concat($categories->map(fn ($c) => ['key' => (string) $c->id, 'label' => $c->name]));
+                @endphp
+                @foreach($categoryTabs as $tab)
+                    @php
+                        $tabQuery = $listQuery;
+                        if ($tab['key'] === 'all') {
+                            unset($tabQuery['category']);
+                        } else {
+                            $tabQuery['category'] = $tab['key'];
+                        }
+                        $isCatActive = $categoryFilter === $tab['key'];
+                    @endphp
+                    <a href="{{ route('wp-sites.index', $tabQuery) }}"
+                        class="px-3 py-1.5 text-sm rounded-lg transition-colors {{ $isCatActive ? 'bg-slate-700 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white/60 font-medium' }}"
+                        @if($isCatActive) aria-current="page" @endif>
+                        {{ $tab['label'] }}
+                    </a>
+                @endforeach
+            </div>
+        </div>
         <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-slate-200">
                 <thead class="bg-slate-50">
@@ -142,6 +232,7 @@
                         </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-16">S.No</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Domain</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Category</th>
                         <th class="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">API URL</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
                         <th class="hidden lg:table-cell px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Last Checked</th>
@@ -151,12 +242,19 @@
                 </thead>
                 <tbody class="divide-y divide-slate-200" id="wp-sites-table-body">
                     @forelse($wpSites ?? [] as $wpSite)
-                        <tr class="hover:bg-slate-50/50 transition-colors wp-site-row" data-search="{{ strtolower($wpSite->domain . ' ' . ($wpSite->api_url ?? '') . ' ' . ($wpSite->status ?? '') . ' ' . ($wpSite->notes ?? '')) }}">
+                        <tr class="hover:bg-slate-50/50 transition-colors wp-site-row" data-search="{{ strtolower($wpSite->domain . ' ' . ($wpSite->api_url ?? '') . ' ' . ($wpSite->status ?? '') . ' ' . ($wpSite->notes ?? '') . ' ' . ($wpSite->wpSiteCategory?->name ?? 'uncategorized')) }}">
                             <td class="px-6 py-4">
-                                <input type="checkbox" form="bulk-delete-form" name="wp_site_ids[]" value="{{ $wpSite->id }}" class="wp-site-checkbox rounded border-slate-300 text-sky-600 focus:ring-sky-500">
+                                <input type="checkbox" form="bulk-sites-form" name="wp_site_ids[]" value="{{ $wpSite->id }}" class="wp-site-checkbox rounded border-slate-300 text-sky-600 focus:ring-sky-500">
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{{ ($wpSites->currentPage() - 1) * $wpSites->perPage() + $loop->iteration }}</td>
                             <td class="px-6 py-4 whitespace-nowrap font-medium text-slate-800">{{ $wpSite->domain }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                @if($wpSite->wpSiteCategory)
+                                    <span class="px-2.5 py-0.5 text-xs font-medium rounded-full bg-violet-100 text-violet-700">{{ $wpSite->wpSiteCategory->name }}</span>
+                                @else
+                                    <span class="text-xs text-slate-400">Uncategorized</span>
+                                @endif
+                            </td>
                             <td class="hidden md:table-cell px-6 py-4 text-sm text-slate-600">{{ Str::limit($wpSite->api_url ?? '-', 40) }}</td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 @php
@@ -198,7 +296,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" class="px-6 py-12 text-center text-slate-500">
+                            <td colspan="9" class="px-6 py-12 text-center text-slate-500">
                                 <svg class="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
                                 </svg>
@@ -295,6 +393,15 @@
                         <input type="text" name="api_key" placeholder="Your API key" class="w-full rounded-lg border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500">
                     </div>
                     <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Category (optional)</label>
+                        <select name="wp_site_category_id" class="w-full rounded-lg border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500">
+                            <option value="">None</option>
+                            @foreach($categories as $category)
+                                <option value="{{ $category->id }}" @selected((string) old('wp_site_category_id') === (string) $category->id)>{{ $category->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Notes (optional)</label>
                         <textarea name="notes" rows="2" class="w-full rounded-lg border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500"></textarea>
                     </div>
@@ -318,7 +425,7 @@ function openAddWpSiteModal() {
 (function() {
     const selectAll = document.getElementById('select-all');
     const checkboxes = document.querySelectorAll('.wp-site-checkbox');
-    const bulkForm = document.getElementById('bulk-delete-form');
+    const bulkForm = document.getElementById('bulk-sites-form');
     const bulkCount = document.getElementById('bulk-count');
     if (!bulkForm || !bulkCount) return;
 

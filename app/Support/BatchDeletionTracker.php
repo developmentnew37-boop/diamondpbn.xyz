@@ -32,8 +32,16 @@ class BatchDeletionTracker
         Cache::forget(self::key($batchId, 'succeeded'));
     }
 
+    public static function isInProgress(int $batchId): bool
+    {
+        return Cache::has(self::key($batchId, 'remaining'));
+    }
+
     public static function domainCompleted(int $batchId, int $domainId, bool $success, ?string $error = null): void
     {
+        if (! self::isInProgress($batchId)) {
+            return;
+        }
         $lock = Cache::lock(self::key($batchId, 'lock'), 30);
 
         $lock->block(10, function () use ($batchId, $domainId, $success, $error) {

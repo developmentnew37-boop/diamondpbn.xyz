@@ -6,6 +6,7 @@ use App\Jobs\Concerns\HandlesWpChunkPublishFailure;
 use App\Jobs\Concerns\NormalizesChunkApiCounts;
 use App\Models\WpBatchSiteChunk;
 use App\Services\WpApiService;
+use App\Support\AutoRetryFailedChunk;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -80,6 +81,8 @@ class PublishWpBatchChunkJob implements ShouldBeUnique, ShouldQueue
             'status' => WpBatchSiteChunk::STATUS_PROCESSING,
 
             'sent_at' => now(),
+
+            'error_message' => null,
 
         ]);
 
@@ -158,6 +161,10 @@ class PublishWpBatchChunkJob implements ShouldBeUnique, ShouldQueue
 
         }
 
+        if ($failedCount > 0) {
+            AutoRetryFailedChunk::afterPublish($chunk);
+        }
+
     }
 
     public function failed(?\Throwable $e): void
@@ -172,6 +179,7 @@ class PublishWpBatchChunkJob implements ShouldBeUnique, ShouldQueue
         }
 
         $this->markWpBatchChunkFailed($chunk, $e?->getMessage() ?? 'Publish failed after retries');
+        AutoRetryFailedChunk::afterPublish($chunk, $e?->getMessage());
 
         Log::warning('PublishWpBatchChunkJob exhausted retries', [
 

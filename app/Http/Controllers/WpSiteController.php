@@ -5,12 +5,14 @@ namespace App\Http\Controllers;
 use App\Jobs\ImportWpSitesJob;
 use App\Jobs\WpSiteHealthCheckJob;
 use App\Models\WpSite;
+use App\Models\WpSiteCategory;
 use App\Models\WpSiteImport;
 use App\Rules\SafeApiUrl;
 use App\Support\ApiUrlHelper;
 use App\Support\Workspace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class WpSiteController extends Controller
 {
@@ -21,6 +23,7 @@ class WpSiteController extends Controller
         if (! in_array($statusFilter, ['all', 'active', 'inactive', 'error'], true)) {
             $statusFilter = 'all';
         }
+        $categoryFilter = $this->categoryFilter($request);
 
         $baseQuery = WpSite::where('user_id', Workspace::ownerId());
         if ($search !== '') {
@@ -54,7 +57,14 @@ class WpSiteController extends Controller
             $dedupedQuery->where('status', 'error');
         }
 
+        if ($categoryFilter === 'uncategorized') {
+            $dedupedQuery->whereNull('wp_site_category_id');
+        } elseif (is_numeric($categoryFilter)) {
+            $dedupedQuery->where('wp_site_category_id', (int) $categoryFilter);
+        }
+
         $wpSites = $dedupedQuery
+            ->with('wpSiteCategory')
             ->orderByDesc('created_at')
             ->paginate(50)
             ->withQueryString();
@@ -65,12 +75,18 @@ class WpSiteController extends Controller
             ->limit(20)
             ->get();
 
+        $categories = WpSiteCategory::catalog()
+            ->withCount(['wpSites' => fn ($q) => $q->where('user_id', Workspace::ownerId())])
+            ->get();
+
         return view('wp-sites.index', [
             'wpSites' => $wpSites,
             'imports' => $imports,
             'search' => $search,
             'statusFilter' => $statusFilter,
             'statusCounts' => $statusCounts,
+            'categories' => $categories,
+            'categoryFilter' => $categoryFilter,
         ]);
     }
 
@@ -82,6 +98,7 @@ class WpSiteController extends Controller
             'api_url' => ['required', 'url', new SafeApiUrl()],
             'api_key' => 'nullable|string',
             'notes' => 'nullable|string',
+            'wp_site_category_id' => ['nullable', 'integer', Rule::exists('wp_site_categories', 'id')],
         ]);
 
         $normalized = WpSite::normalizeDomain((string) $validated['domain']);
@@ -94,6 +111,7 @@ class WpSiteController extends Controller
         $validated['domain_normalized'] = $normalized;
         $validated['api_url'] = ApiUrlHelper::restApiBase($validated['api_url']);
         $validated['status'] = 'inactive';
+        $validated['wp_site_category_id'] = $validated['wp_site_category_id'] ?? null;
 
         $wpSite = WpSite::create($validated);
         WpSiteHealthCheckJob::dispatch($wpSite);
@@ -107,7 +125,9 @@ class WpSiteController extends Controller
             abort(403);
         }
 
-        return view('wp-sites.edit', compact('wpSite'));
+        $categories = WpSiteCategory::catalog()->get();
+
+        return view('wp-sites.edit', compact('wpSite', 'categories'));
     }
 
     public function import(Request $request)
@@ -136,7 +156,9 @@ class WpSiteController extends Controller
             'api_url' => ['required', 'url', new SafeApiUrl()],
             'api_key' => 'nullable|string',
             'notes' => 'nullable|string',
+            'wp_site_category_id' => ['nullable', 'integer', Rule::exists('wp_site_categories', 'id')],
         ]);
+        $validated['wp_site_category_id'] = $validated['wp_site_category_id'] ?? null;
         $normalized = WpSite::normalizeDomain((string) $validated['domain']);
         $exists = WpSite::where('user_id', Workspace::ownerId())
             ->where('domain_normalized', $normalized)
@@ -241,6 +263,94 @@ class WpSiteController extends Controller
         return back()->with('success', $deleted.' WP site(s) deleted.');
     }
 
+    public function assignBulk(Request $request)
+    {
+        $validated = $request->validate([
+            'wp_site_ids' => 'required|array|min:1',
+            'wp_site_ids.*' => 'integer',
+            'wp_site_category_id' => ['nullable', 'integer', Rule::exists('wp_site_categories', 'id')],
+        ]);
+
+        $categoryId = $validated['wp_site_category_id'] ?? null;
+        $ids = WpSite::where('user_id', Workspace::ownerId())
+            ->whereIn('id', $validated['wp_site_ids'])
+            ->pluck('id');
+
+        if ($ids->isEmpty()) {
+            return back()->with('error', 'No matching WP sites found. Select sites from the list and try again.');
+        }
+
+        $updated = 0;
+        foreach ($ids->chunk(500) as $part) {
+            $updated += WpSite::where('user_id', Workspace::ownerId())
+                ->whereIn('id', $part->all())
+                ->update(['wp_site_category_id' => $categoryId]);
+        }
+
+        $label = $categoryId
+            ? (string) WpSiteCategory::query()->whereKey($categoryId)->value('name')
+            : 'Uncategorized';
+
+        return back()->with('success', $updated.' WP site(s) set to '.$label.'.');
+    }
+
+    public function assignByPaste(Request $request)
+    {
+        $validated = $request->validate([
+            'wp_site_category_id' => ['nullable', 'integer', Rule::exists('wp_site_categories', 'id')],
+            'domains' => 'required|string',
+        ]);
+
+        $lines = array_values(array_unique(array_filter(array_map(
+            fn ($line) => WpSite::normalizeDomain($line),
+            preg_split('/\r?\n/', $validated['domains']) ?: []
+        ))));
+
+        if ($lines === []) {
+            return back()->with('error', 'Paste at least one domain.');
+        }
+
+        $matched = collect();
+        foreach (array_chunk($lines, 500) as $part) {
+            $matched = $matched->concat(
+                WpSite::where('user_id', Workspace::ownerId())
+                    ->whereIn('domain_normalized', $part)
+                    ->get(['id', 'domain_normalized'])
+            );
+        }
+
+        $ids = $matched->pluck('id')->unique()->values();
+        $unknown = array_values(array_diff($lines, $matched->pluck('domain_normalized')->all()));
+        $categoryId = $validated['wp_site_category_id'] ?? null;
+
+        $updated = 0;
+        foreach ($ids->chunk(500) as $part) {
+            $updated += WpSite::where('user_id', Workspace::ownerId())
+                ->whereIn('id', $part->all())
+                ->update(['wp_site_category_id' => $categoryId]);
+        }
+
+        $label = $categoryId
+            ? (string) WpSiteCategory::query()->whereKey($categoryId)->value('name')
+            : 'Uncategorized';
+        $message = $updated.' WP site(s) set to '.$label.'.';
+
+        if ($unknown !== []) {
+            $preview = implode(', ', array_slice($unknown, 0, 10));
+            if (count($unknown) > 10) {
+                $preview .= ' +'.(count($unknown) - 10).' more';
+            }
+
+            return back()->with('success', $message)->with('info', 'Unknown domains skipped: '.$preview);
+        }
+
+        if ($updated === 0) {
+            return back()->with('error', 'No matching WP sites found for the pasted domains.');
+        }
+
+        return back()->with('success', $message);
+    }
+
     public function destroyImport(WpSiteImport $wpSiteImport)
     {
         if ($wpSiteImport->user_id !== Workspace::ownerId()) {
@@ -283,6 +393,7 @@ class WpSiteController extends Controller
         if (! in_array($statusFilter, ['all', 'active', 'inactive', 'error'], true)) {
             $statusFilter = 'all';
         }
+        $categoryFilter = $this->categoryFilter($request);
 
         $baseQuery = WpSite::where('user_id', Workspace::ownerId());
         if ($search !== '') {
@@ -307,13 +418,19 @@ class WpSiteController extends Controller
         } elseif ($statusFilter === 'error') {
             $query->where('status', 'error');
         }
+        if ($categoryFilter === 'uncategorized') {
+            $query->whereNull('wp_site_category_id');
+        } elseif (is_numeric($categoryFilter)) {
+            $query->where('wp_site_category_id', (int) $categoryFilter);
+        }
 
         $wpSites = $query
+            ->with('wpSiteCategory')
             ->orderBy('domain')
             ->get();
 
         $lines = [];
-        $lines[] = ['Domain', 'API URL', 'Status', 'Last Checked', 'Last Error', 'Notes'];
+        $lines[] = ['Domain', 'API URL', 'Status', 'Last Checked', 'Last Error', 'Notes', 'Category'];
         foreach ($wpSites as $wpSite) {
             $lines[] = [
                 $wpSite->domain,
@@ -322,6 +439,7 @@ class WpSiteController extends Controller
                 optional($wpSite->last_checked_at)->toDateTimeString() ?? '',
                 $wpSite->last_health_error ?? '',
                 $wpSite->notes ?? '',
+                $wpSite->wpSiteCategory?->name ?? '',
             ];
         }
 
@@ -338,5 +456,19 @@ class WpSiteController extends Controller
         return response($csv)
             ->header('Content-Type', 'text/csv')
             ->header('Content-Disposition', 'attachment; filename="'.$filename.'"');
+    }
+
+    private function categoryFilter(Request $request): string
+    {
+        $categoryFilter = (string) $request->query('category', 'all');
+        if ($categoryFilter === 'all' || $categoryFilter === 'uncategorized') {
+            return $categoryFilter;
+        }
+
+        if (ctype_digit($categoryFilter) && WpSiteCategory::query()->whereKey((int) $categoryFilter)->exists()) {
+            return $categoryFilter;
+        }
+
+        return 'all';
     }
 }

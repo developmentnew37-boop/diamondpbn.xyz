@@ -35,6 +35,15 @@
                 </div>
                 @endif
                 <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Category (optional)</label>
+                    <select name="wp_site_category_id" class="w-full rounded-lg border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500">
+                        <option value="">None</option>
+                        @foreach(($categories ?? collect()) as $category)
+                            <option value="{{ $category->id }}" @selected((string) old('wp_site_category_id', $wpSite->wp_site_category_id) === (string) $category->id)>{{ $category->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1">Notes (optional)</label>
                     <textarea name="notes" rows="2" class="w-full rounded-lg border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500">{{ old('notes', $wpSite->notes) }}</textarea>
                 </div>

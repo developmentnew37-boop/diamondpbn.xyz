@@ -10,6 +10,7 @@ class WpSite extends Model
     protected $fillable = [
         'user_id',
         'wp_site_import_id',
+        'wp_site_category_id',
         'domain',
         'domain_normalized',
         'api_url',
@@ -38,6 +39,11 @@ class WpSite extends Model
     public function wpSiteImport(): BelongsTo
     {
         return $this->belongsTo(WpSiteImport::class);
+    }
+
+    public function wpSiteCategory(): BelongsTo
+    {
+        return $this->belongsTo(WpSiteCategory::class);
     }
 
     public static function normalizeDomain(string $domain): string

@@ -12,6 +12,7 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WpBatchController;
 use App\Http\Controllers\WpBlockInspectController;
+use App\Http\Controllers\WpSiteCategoryController;
 use App\Http\Controllers\WpSiteController;
 use Illuminate\Support\Facades\Route;
 
@@ -94,6 +95,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/wp-sites/block-inspect/toggle-all', [WpBlockInspectController::class, 'toggleAll'])->name('wp-sites.block-inspect.toggle-all');
         Route::post('/wp-sites/block-inspect/toggle-selected', [WpBlockInspectController::class, 'toggleSelected'])->name('wp-sites.block-inspect.toggle-selected');
         Route::post('/wp-sites/block-inspect/toggle-manual', [WpBlockInspectController::class, 'toggleManual'])->name('wp-sites.block-inspect.toggle-manual');
+        Route::post('/wp-sites/categories', [WpSiteCategoryController::class, 'store'])->name('wp-sites.categories.store');
+        Route::patch('/wp-sites/categories/{wpSiteCategory}', [WpSiteCategoryController::class, 'update'])->name('wp-sites.categories.update');
+        Route::delete('/wp-sites/categories/{wpSiteCategory}', [WpSiteCategoryController::class, 'destroy'])->name('wp-sites.categories.destroy');
+        Route::post('/wp-sites/bulk-category', [WpSiteController::class, 'assignBulk'])->name('wp-sites.bulk-category');
+        Route::post('/wp-sites/bulk-category-paste', [WpSiteController::class, 'assignByPaste'])->name('wp-sites.bulk-category-paste');
         Route::post('/wp-sites', [WpSiteController::class, 'store'])->name('wp-sites.store');
         Route::get('/wp-sites/{wpSite}/edit', [WpSiteController::class, 'edit'])->name('wp-sites.edit');
         Route::patch('/wp-sites/{wpSite}', [WpSiteController::class, 'update'])->name('wp-sites.update');

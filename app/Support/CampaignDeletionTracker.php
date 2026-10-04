@@ -24,8 +24,16 @@ class CampaignDeletionTracker
         Cache::forget(self::key($campaignId, 'succeeded'));
     }
 
+    public static function isInProgress(int $campaignId): bool
+    {
+        return Cache::has(self::key($campaignId, 'remaining'));
+    }
+
     public static function domainCompleted(int $campaignId, int $campaignDomainId, bool $success, ?string $error = null): void
     {
+        if (! self::isInProgress($campaignId)) {
+            return;
+        }
         $lock = Cache::lock(self::key($campaignId, 'lock'), 30);
 
         $lock->block(10, function () use ($campaignId, $campaignDomainId, $success, $error) {

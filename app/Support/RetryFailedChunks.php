@@ -6,27 +6,105 @@ use App\Models\BatchDomainChunk;
 use App\Models\CampaignDomainChunk;
 use App\Models\WpBatchSiteChunk;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class RetryFailedChunks
 {
     /**
-     * Move failed links from one chunk into new pending chunk(s). Returns how many links were queued.
+     * Reset all-failed chunks in one update, then split mixed chunks. Returns retried link count.
      */
-    public static function process(Model $chunk): int
+    public static function retryRun(string $chunkClass, string $parentKey, int $parentId): int
+    {
+        $reset = $chunkClass::query()
+            ->where($parentKey, $parentId)
+            ->where('failed_count', '>', 0)
+            ->whereRaw('failed_count >= COALESCE(JSON_LENGTH(links_payload), 0)');
+
+        $resetCount = (int) (clone $reset)->sum('failed_count');
+        $reset->update([
+            'status' => $chunkClass::STATUS_PENDING,
+            'failed_count' => 0,
+            'success_count' => 0,
+            'results_payload' => json_encode([]),
+            'error_message' => null,
+            'sent_at' => null,
+            'completed_at' => null,
+        ]);
+
+        $mixed = 0;
+        while (true) {
+            $retried = (int) DB::transaction(function () use ($chunkClass, $parentKey, $parentId) {
+                $chunk = $chunkClass::query()
+                    ->where($parentKey, $parentId)
+                    ->where('failed_count', '>', 0)
+                    ->orderBy('id')
+                    ->first();
+
+                if (! $chunk) {
+                    return -1;
+                }
+
+                return self::process($chunk)['count'];
+            });
+
+            if ($retried < 0) {
+                break;
+            }
+
+            $mixed += $retried;
+        }
+
+        return $resetCount + $mixed;
+    }
+
+    /**
+     * @return array{count: int, ids: array<int>}
+     */
+    public static function process(Model $chunk): array
     {
         [$parentKey, $ownerKey] = self::keys($chunk);
         $class = $chunk::class;
 
+        $class::query()
+            ->where($parentKey, $chunk->{$parentKey})
+            ->where($ownerKey, $chunk->{$ownerKey})
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->pluck('id');
+
+        $chunk = $class::query()->whereKey($chunk->id)->first();
+        if (! $chunk || (int) ($chunk->failed_count ?? 0) < 1) {
+            return ['count' => 0, 'ids' => []];
+        }
+
         $linksPayload = is_array($chunk->links_payload) ? $chunk->links_payload : [];
         $resultsPayload = is_array($chunk->results_payload) ? $chunk->results_payload : [];
         $failedIndices = method_exists($chunk, 'failedLinkIndices') ? $chunk->failedLinkIndices() : [];
+        $linkCount = count($linksPayload);
 
         if ($failedIndices === []) {
             if ((int) ($chunk->failed_count ?? 0) > 0) {
                 $chunk->update(['failed_count' => 0]);
             }
 
-            return 0;
+            return ['count' => 0, 'ids' => []];
+        }
+
+        if ($linkCount > 0 && count($failedIndices) >= $linkCount) {
+            $nextIndex = self::nextChunkIndex($class, $parentKey, $ownerKey, $chunk);
+
+            $chunk->update([
+                'chunk_index' => $nextIndex,
+                'status' => $class::STATUS_PENDING,
+                'failed_count' => 0,
+                'success_count' => 0,
+                'results_payload' => [],
+                'error_message' => null,
+                'sent_at' => null,
+                'completed_at' => null,
+            ]);
+
+            return ['count' => $linkCount, 'ids' => [(int) $chunk->id]];
         }
 
         $failedLinks = array_values(array_filter(array_map(
@@ -37,27 +115,26 @@ class RetryFailedChunks
         if ($failedLinks === []) {
             $chunk->update(['failed_count' => 0]);
 
-            return 0;
+            return ['count' => 0, 'ids' => []];
         }
 
         $chunkSize = (int) constant($class.'::CHUNK_SIZE');
         $retryChunks = array_chunk($failedLinks, max(1, $chunkSize));
-        $nextIndex = (int) $class::query()
-            ->where($parentKey, $chunk->{$parentKey})
-            ->where($ownerKey, $chunk->{$ownerKey})
-            ->max('chunk_index');
+        $nextIndex = self::nextChunkIndex($class, $parentKey, $ownerKey, $chunk);
 
+        $ids = [];
         $total = 0;
         foreach ($retryChunks as $retryLinks) {
-            $nextIndex++;
-            $class::create([
+            $created = $class::create([
                 $parentKey => $chunk->{$parentKey},
                 $ownerKey => $chunk->{$ownerKey},
                 'chunk_index' => $nextIndex,
                 'links_payload' => $retryLinks,
                 'status' => $class::STATUS_PENDING,
             ]);
+            $ids[] = (int) $created->id;
             $total += count($retryLinks);
+            $nextIndex++;
         }
 
         $failedLookup = array_flip($failedIndices);
@@ -74,7 +151,7 @@ class RetryFailedChunks
         if ($remainingLinks === []) {
             $chunk->delete();
 
-            return $total;
+            return ['count' => $total, 'ids' => $ids];
         }
 
         $chunk->update([
@@ -85,7 +162,18 @@ class RetryFailedChunks
             'status' => $class::STATUS_COMPLETED,
         ]);
 
-        return $total;
+        return ['count' => $total, 'ids' => $ids];
+    }
+
+    /**
+     * @param  class-string<Model>  $class
+     */
+    private static function nextChunkIndex(string $class, string $parentKey, string $ownerKey, Model $chunk): int
+    {
+        return (int) $class::query()
+            ->where($parentKey, $chunk->{$parentKey})
+            ->where($ownerKey, $chunk->{$ownerKey})
+            ->max('chunk_index') + 1;
     }
 
     /**

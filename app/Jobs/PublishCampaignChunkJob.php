@@ -6,6 +6,7 @@ use App\Jobs\Concerns\HandlesChunkPublishFailure;
 use App\Jobs\Concerns\NormalizesChunkApiCounts;
 use App\Models\CampaignDomainChunk;
 use App\Services\PbnApiService;
+use App\Support\AutoRetryFailedChunk;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -59,6 +60,7 @@ class PublishCampaignChunkJob implements ShouldQueue, ShouldBeUnique
         $chunk->update([
             'status' => CampaignDomainChunk::STATUS_PROCESSING,
             'sent_at' => now(),
+            'error_message' => null,
         ]);
 
         try {
@@ -105,6 +107,10 @@ class PublishCampaignChunkJob implements ShouldQueue, ShouldBeUnique
         if ($campaign->status === 'processing') {
             $campaign->update(['started_at' => $campaign->started_at ?? now()]);
         }
+
+        if ($failedCount > 0) {
+            AutoRetryFailedChunk::afterPublish($chunk);
+        }
     }
 
     public function failed(?\Throwable $e): void
@@ -115,6 +121,7 @@ class PublishCampaignChunkJob implements ShouldQueue, ShouldBeUnique
         }
 
         $this->markCampaignChunkFailed($chunk, $e?->getMessage() ?? 'Publish failed after retries');
+        AutoRetryFailedChunk::afterPublish($chunk, $e?->getMessage());
 
         Log::warning('PublishCampaignChunkJob exhausted retries', [
             'campaign_id' => $chunk->campaign_id,

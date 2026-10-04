@@ -115,7 +115,26 @@
                         <button type="button" id="select-n-btn" class="px-3 py-1.5 bg-sky-600 text-white text-sm rounded-lg hover:bg-sky-700">
                             Apply
                         </button>
+                        <button type="button" id="select-all-sites-btn" class="px-3 py-1.5 border border-slate-300 text-slate-700 text-sm rounded-lg hover:bg-white">
+                            Select all sites
+                        </button>
                         <span class="text-xs text-slate-500" id="site-total-hint">({{ count($wpSites ?? []) }} total)</span>
+                    </div>
+                    <div class="flex flex-wrap gap-2 mb-4" id="site-category-filters">
+                        @php
+                            $uncategorizedCount = $uncategorizedCount ?? 0;
+                        @endphp
+                        <button type="button" data-category-filter="all" class="site-category-chip px-3 py-1.5 text-sm rounded-lg bg-slate-800 text-white font-medium">
+                            All <span class="tabular-nums opacity-80">{{ count($wpSites ?? []) }}</span>
+                        </button>
+                        <button type="button" data-category-filter="uncategorized" class="site-category-chip px-3 py-1.5 text-sm rounded-lg bg-slate-100 text-slate-700 font-medium hover:bg-slate-200">
+                            Uncategorized <span class="tabular-nums opacity-70">{{ $uncategorizedCount }}</span>
+                        </button>
+                        @foreach(($categories ?? collect()) as $category)
+                            <button type="button" data-category-filter="{{ $category->id }}" class="site-category-chip px-3 py-1.5 text-sm rounded-lg bg-slate-100 text-slate-700 font-medium hover:bg-slate-200">
+                                {{ $category->name }} <span class="tabular-nums opacity-70">{{ $category->wp_sites_count }}</span>
+                            </button>
+                        @endforeach
                     </div>
                     </div>
 
@@ -148,12 +167,18 @@
                         </label>
                         <div class="mt-2 space-y-1" id="site-list">
                             @forelse($wpSites ?? [] as $wpSite)
-                                <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
+                                <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer site-row">
                                     <input type="checkbox" name="wp_site_ids[]" value="{{ $wpSite->id }}"
                                         {{ in_array($wpSite->id, old('wp_site_ids', [])) ? 'checked' : '' }}
                                         class="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                                        data-domain="{{ strtolower($wpSite->domain) }}">
+                                        data-domain="{{ strtolower($wpSite->domain) }}"
+                                        data-category-id="{{ $wpSite->wp_site_category_id ?? '' }}">
                                     <span class="text-sm">{{ $wpSite->domain }}</span>
+                                    @if($wpSite->wpSiteCategory)
+                                        <span class="ml-auto text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">{{ $wpSite->wpSiteCategory->name }}</span>
+                                    @else
+                                        <span class="ml-auto text-xs text-slate-400">Uncategorized</span>
+                                    @endif
                                 </label>
                             @empty
                                 <p class="text-slate-500 text-sm py-4">No WP sites available.@if(auth()->user()->isSuperAdmin()) <a
@@ -232,10 +257,68 @@
             const mismatchEl = document.getElementById('bulk-mismatch');
 
             const selectAllCb = document.getElementById('select-all-cb');
+            const siteTotalHint = document.getElementById('site-total-hint');
             const siteCheckboxes = () => form ? [...form.querySelectorAll('input[name="wp_site_ids[]"]')] : [];
+            const visibleSiteCheckboxes = () => siteCheckboxes().filter(cb => {
+                const row = cb.closest('.site-row');
+                return row && !row.classList.contains('hidden');
+            });
+
+            let categoryFilter = 'all';
+
+            function applyCategoryFilter() {
+                siteCheckboxes().forEach(cb => {
+                    const row = cb.closest('.site-row');
+                    if (!row) return;
+                    const cat = cb.getAttribute('data-category-id') || '';
+                    let show = true;
+                    if (categoryFilter === 'uncategorized') {
+                        show = cat === '';
+                    } else if (categoryFilter !== 'all') {
+                        show = cat === String(categoryFilter);
+                    }
+                    row.classList.toggle('hidden', !show);
+                });
+                const visible = visibleSiteCheckboxes().length;
+                const total = siteCheckboxes().length;
+                if (siteTotalHint) {
+                    siteTotalHint.textContent = categoryFilter === 'all'
+                        ? '(' + total + ' total)'
+                        : '(' + visible + ' visible / ' + total + ' total)';
+                }
+                if (selectAllCb) {
+                    const visibleCbs = visibleSiteCheckboxes();
+                    const checkedVisible = visibleCbs.filter(cb => cb.checked).length;
+                    selectAllCb.checked = visibleCbs.length > 0 && checkedVisible === visibleCbs.length;
+                    selectAllCb.indeterminate = checkedVisible > 0 && checkedVisible < visibleCbs.length;
+                }
+                document.querySelectorAll('.site-category-chip').forEach(chip => {
+                    const active = chip.getAttribute('data-category-filter') === categoryFilter;
+                    chip.classList.toggle('bg-slate-800', active);
+                    chip.classList.toggle('text-white', active);
+                    chip.classList.toggle('bg-slate-100', !active);
+                    chip.classList.toggle('text-slate-700', !active);
+                });
+            }
+
+            document.querySelectorAll('.site-category-chip').forEach(chip => {
+                chip.addEventListener('click', function() {
+                    categoryFilter = this.getAttribute('data-category-filter') || 'all';
+                    applyCategoryFilter();
+                });
+            });
+
             if (selectAllCb) {
                 selectAllCb.addEventListener('change', function() {
-                    siteCheckboxes().forEach(cb => cb.checked = this.checked);
+                    visibleSiteCheckboxes().forEach(cb => cb.checked = this.checked);
+                });
+            }
+
+            const selectAllSitesBtn = document.getElementById('select-all-sites-btn');
+            if (selectAllSitesBtn) {
+                selectAllSitesBtn.addEventListener('click', function() {
+                    siteCheckboxes().forEach(cb => { cb.checked = true; });
+                    applyCategoryFilter();
                 });
             }
 
@@ -246,11 +329,11 @@
                 selectNBtn.addEventListener('click', function() {
                     const n = parseInt(selectNCount.value, 10);
                     const mode = selectNMode.value;
-                    const cbs = siteCheckboxes();
+                    const cbs = visibleSiteCheckboxes();
                     if (!n || n < 1 || cbs.length === 0) return;
                     const total = cbs.length;
                     const count = Math.min(n, total);
-                    siteCheckboxes().forEach(cb => cb.checked = false);
+                    cbs.forEach(cb => cb.checked = false);
                     if (mode === 'top') {
                         cbs.slice(0, count).forEach(cb => cb.checked = true);
                     } else if (mode === 'bottom') {
@@ -259,7 +342,7 @@
                         const shuffled = cbs.slice().sort(() => Math.random() - 0.5);
                         shuffled.slice(0, count).forEach(cb => cb.checked = true);
                     }
-                    if (selectAllCb) selectAllCb.checked = (count === total);
+                    applyCategoryFilter();
                 });
             }
 
@@ -334,8 +417,12 @@
                         bulkSiteMissing.textContent = '';
                         bulkSiteMissing.classList.add('hidden');
                     }
+                    applyCategoryFilter();
                 });
             }
+
+            siteCheckboxes().forEach(cb => cb.addEventListener('change', applyCategoryFilter));
+            applyCategoryFilter();
 
             function parseLines(ta) {
                 return (ta?.value || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);

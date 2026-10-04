@@ -4,14 +4,15 @@ namespace App\Jobs;
 
 use App\Models\WpBatch;
 use App\Models\WpBatchSiteChunk;
+use App\Support\PublishPendingChunks;
 use App\Support\RetryFailedChunks;
+use App\Support\RunProgress;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class RetryFailedWpBatchChunksJob implements ShouldQueue, ShouldBeUnique
@@ -45,42 +46,30 @@ class RetryFailedWpBatchChunksJob implements ShouldQueue, ShouldBeUnique
     {
         $wpBatch = WpBatch::find($this->wpBatchId);
         if (! $wpBatch || in_array($wpBatch->status, ['paused', 'deleting'], true)) {
+            RunProgress::clearRetrying('wp-batch', $this->wpBatchId);
+
             return;
         }
 
-        $total = 0;
-
-        while (true) {
-            $retried = (int) DB::transaction(function () {
-                $chunk = WpBatchSiteChunk::query()
-                    ->where('wp_batch_id', $this->wpBatchId)
-                    ->where('failed_count', '>', 0)
-                    ->orderBy('id')
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $chunk) {
-                    return -1;
-                }
-
-                return RetryFailedChunks::process($chunk);
-            });
-
-            if ($retried < 0) {
-                break;
-            }
-
-            $total += $retried;
+        $total = RetryFailedChunks::retryRun(WpBatchSiteChunk::class, 'wp_batch_id', $this->wpBatchId);
+        $queued = 0;
+        $wpBatch = $wpBatch->fresh();
+        if ($total > 0 && $wpBatch && ! in_array($wpBatch->status, ['paused', 'deleting'], true)) {
+            $queued = PublishPendingChunks::forWpBatch($wpBatch);
         }
 
-        $wpBatch->recalculateCounters();
-        if ($total > 0 && $wpBatch->fresh()?->status !== 'paused') {
-            $wpBatch->update(['status' => 'processing']);
-        }
+        $wpBatch?->recalculateCounters(true);
+        RunProgress::clearRetrying('wp-batch', $this->wpBatchId);
 
         Log::info('Retry failed WP batch chunks finished', [
             'wp_batch_id' => $this->wpBatchId,
             'retried' => $total,
+            'published' => $queued,
         ]);
+    }
+
+    public function failed(?\Throwable $e): void
+    {
+        RunProgress::clearRetrying('wp-batch', $this->wpBatchId);
     }
 }

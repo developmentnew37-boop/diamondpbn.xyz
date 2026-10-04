@@ -4,14 +4,15 @@ namespace App\Jobs;
 
 use App\Models\Batch;
 use App\Models\BatchDomainChunk;
+use App\Support\PublishPendingChunks;
 use App\Support\RetryFailedChunks;
+use App\Support\RunProgress;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class RetryFailedBatchChunksJob implements ShouldQueue, ShouldBeUnique
@@ -45,42 +46,30 @@ class RetryFailedBatchChunksJob implements ShouldQueue, ShouldBeUnique
     {
         $batch = Batch::find($this->batchId);
         if (! $batch || in_array($batch->status, ['paused', 'deleting'], true)) {
+            RunProgress::clearRetrying('batch', $this->batchId);
+
             return;
         }
 
-        $total = 0;
-
-        while (true) {
-            $retried = (int) DB::transaction(function () {
-                $chunk = BatchDomainChunk::query()
-                    ->where('batch_id', $this->batchId)
-                    ->where('failed_count', '>', 0)
-                    ->orderBy('id')
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $chunk) {
-                    return -1;
-                }
-
-                return RetryFailedChunks::process($chunk);
-            });
-
-            if ($retried < 0) {
-                break;
-            }
-
-            $total += $retried;
+        $total = RetryFailedChunks::retryRun(BatchDomainChunk::class, 'batch_id', $this->batchId);
+        $queued = 0;
+        $batch = $batch->fresh();
+        if ($total > 0 && $batch && ! in_array($batch->status, ['paused', 'deleting'], true)) {
+            $queued = PublishPendingChunks::forBatch($batch);
         }
 
-        $batch->recalculateCounters();
-        if ($total > 0 && $batch->fresh()?->status !== 'paused') {
-            $batch->update(['status' => 'processing']);
-        }
+        $batch?->recalculateCounters(true);
+        RunProgress::clearRetrying('batch', $this->batchId);
 
         Log::info('Retry failed batch chunks finished', [
             'batch_id' => $this->batchId,
             'retried' => $total,
+            'published' => $queued,
         ]);
+    }
+
+    public function failed(?\Throwable $e): void
+    {
+        RunProgress::clearRetrying('batch', $this->batchId);
     }
 }

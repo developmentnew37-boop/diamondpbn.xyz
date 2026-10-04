@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 
 class WpBatch extends Model
 {
@@ -82,8 +83,20 @@ class WpBatch extends Model
         ];
     }
 
-    public function recalculateCounters(): self
+    public function recalculateCounters(bool $force = false): self
     {
+        if (! $force) {
+            $hasOpen = $this->wpBatchSiteChunks()
+                ->whereIn('status', [WpBatchSiteChunk::STATUS_PENDING, WpBatchSiteChunk::STATUS_PROCESSING])
+                ->exists();
+            if ($hasOpen && ! Cache::add('recalc:'.static::class.':'.$this->id, 1, 15)) {
+                return $this;
+            }
+        }
+
+        $remainingSites = (int) $this->wpBatchSiteChunks()->distinct()->count('wp_site_id');
+        $this->total_domains = $remainingSites;
+
         $aggregates = $this->wpBatchSiteChunks()
             ->selectRaw('COALESCE(SUM(success_count), 0) as success_total, COALESCE(SUM(failed_count), 0) as failed_total')
             ->first();
@@ -94,20 +107,25 @@ class WpBatch extends Model
         $totalExpected = $this->totalExpectedPosts();
         $processed = ($totalExpected > 0) ? min($processedRaw, $totalExpected) : $processedRaw;
 
+        $hasOpenChunks = $this->wpBatchSiteChunks()
+            ->whereIn('status', [WpBatchSiteChunk::STATUS_PENDING, WpBatchSiteChunk::STATUS_PROCESSING])
+            ->exists();
+
         $updates = [
+            'total_domains' => $remainingSites,
             'processed_count' => $processed,
             'success_count' => $success,
             'failed_count' => $failed,
         ];
 
         $terminalStatuses = ['semi_deleted', 'delete_failed', 'deleting'];
-        if (! in_array($this->status, $terminalStatuses, true)) {
-            if ($totalExpected > 0 && $processed >= $totalExpected) {
+        if (! in_array($this->status, $terminalStatuses, true) && $this->status !== 'paused') {
+            if (! $hasOpenChunks) {
                 $updates['status'] = $failed > 0 ? 'partial' : 'completed';
                 if (! $this->completed_at) {
                     $updates['completed_at'] = now();
                 }
-            } elseif ($processed > 0 && $this->status !== 'paused') {
+            } elseif ($processed > 0) {
                 $updates['status'] = 'processing';
             }
         }

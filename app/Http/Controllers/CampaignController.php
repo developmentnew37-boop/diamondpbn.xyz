@@ -10,7 +10,9 @@ use App\Models\CampaignDomain;
 use App\Models\CampaignDomainChunk;
 use App\Models\CampaignLink;
 use App\Support\PbnSettings;
+use App\Support\PublishPendingChunks;
 use App\Support\ReplaceFailedChunkLink;
+use App\Support\RunProgress;
 use App\Support\UnicodeUrl;
 use App\Support\Workspace;
 use Illuminate\Http\Request;
@@ -228,19 +230,56 @@ class CampaignController extends Controller
         return $distribution;
     }
 
-    public function show(Campaign $campaign)
+    public function show(Request $request, Campaign $campaign)
     {
         Workspace::assertCanManageRun($campaign->user_id);
 
         $domainStats = $this->buildDomainStatsForCampaign($campaign);
         $problemDomainCount = collect($domainStats)->where('is_problem', true)->count();
 
-        $links = $campaign->links()->orderBy('id')->get(['id', 'campaign_id', 'url', 'keyword', 'no_follow']);
+        $links = $this->paginateCampaignLinks($request, $campaign);
         $hasPendingChunks = CampaignDomainChunk::where('campaign_id', $campaign->id)
             ->whereIn('status', [CampaignDomainChunk::STATUS_PENDING, CampaignDomainChunk::STATUS_PROCESSING])
             ->exists();
+        $isRetrying = RunProgress::isRetrying('campaign', $campaign->id);
+        $publishingCount = RunProgress::publishingCount('campaign', $campaign->id);
 
-        return view('campaigns.show', compact('campaign', 'domainStats', 'links', 'hasPendingChunks', 'problemDomainCount'));
+        if (! $hasPendingChunks && ! $isRetrying) {
+            $campaign = $campaign->recalculateCounters(true);
+            if ($publishingCount > 0) {
+                RunProgress::clearPublishing('campaign', $campaign->id);
+                $publishingCount = 0;
+            }
+        }
+
+        return view('campaigns.show', compact(
+            'campaign',
+            'domainStats',
+            'links',
+            'hasPendingChunks',
+            'problemDomainCount',
+            'isRetrying',
+            'publishingCount'
+        ));
+    }
+
+    private function paginateCampaignLinks(Request $request, Campaign $campaign)
+    {
+        $search = substr(trim((string) $request->input('links_search', '')), 0, 100);
+        $query = $campaign->links()->orderBy('id');
+
+        if ($search !== '') {
+            $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $search);
+            $term = '%'.$escaped.'%';
+            $query->where(function ($q) use ($term) {
+                $q->where('url', 'like', $term)
+                    ->orWhere('keyword', 'like', $term);
+            });
+        }
+
+        return $query
+            ->paginate(100, ['id', 'campaign_id', 'url', 'keyword', 'no_follow'], 'links_page')
+            ->withQueryString();
     }
 
     private function campaignChunkLinkCountExpr(): string
@@ -409,10 +448,14 @@ class CampaignController extends Controller
             return back()->with('info', 'No failed links to retry.');
         }
 
+        if (! RunProgress::markRetrying('campaign', $campaign->id)) {
+            return back()->with('info', 'Retry is already running. Refresh to see progress.');
+        }
+
         RetryFailedCampaignChunksJob::dispatch($campaign->id);
         $campaign->update(['status' => 'processing']);
 
-        return back()->with('success', 'Retry queued for '.number_format((int) ($campaign->failed_count ?? 0)).' failed link(s). Refresh in a moment, then use Publish pending to send them. Queue worker: campaign_links.');
+        return back()->with('success', 'Retrying '.number_format((int) ($campaign->failed_count ?? 0)).' failed link(s). Status is now Processing. Pending chunks publish automatically when retry finishes.');
     }
 
     public function publishPending(Campaign $campaign)
@@ -423,48 +466,14 @@ class CampaignController extends Controller
             return back()->with('info', 'Cannot publish while campaign deletion is in progress.');
         }
 
-        $staleBefore = now()->subMinutes(10);
-
-        $candidateIds = CampaignDomainChunk::where('campaign_id', $campaign->id)
-            ->where(function ($q) use ($staleBefore) {
-                $q->where('status', CampaignDomainChunk::STATUS_PENDING)
-                    ->orWhere(function ($qq) use ($staleBefore) {
-                        $qq->where('status', CampaignDomainChunk::STATUS_PROCESSING)
-                            ->where(function ($qqq) use ($staleBefore) {
-                                $qqq->whereNotNull('error_message')
-                                    ->orWhereNull('sent_at')
-                                    ->orWhere('sent_at', '<', $staleBefore);
-                            });
-                    });
-            })
-            ->orderBy('campaign_domain_id')
-            ->orderBy('chunk_index')
-            ->pluck('id');
-
-        if ($candidateIds->isEmpty()) {
-            $campaign->recalculateCounters();
+        $queued = PublishPendingChunks::forCampaign($campaign);
+        if ($queued === 0) {
+            $campaign->recalculateCounters(true);
 
             return back()->with('info', 'No pending/stale chunks to publish.');
         }
 
-        CampaignDomainChunk::whereIn('id', $candidateIds)
-            ->update(['status' => CampaignDomainChunk::STATUS_PENDING]);
-
-        $pending = CampaignDomainChunk::where('campaign_id', $campaign->id)
-            ->where('status', CampaignDomainChunk::STATUS_PENDING)
-            ->select(['id', 'campaign_id', 'campaign_domain_id', 'chunk_index'])
-            ->orderBy('campaign_domain_id')
-            ->orderBy('chunk_index')
-            ->get();
-
-        $campaign->update(['status' => 'processing', 'started_at' => $campaign->started_at ?? now()]);
-
-        $delaySeconds = PbnSettings::getLinkDelaySeconds();
-        foreach ($pending as $index => $chunk) {
-            PublishCampaignChunkJob::dispatch($chunk)->delay(now()->addSeconds($index * $delaySeconds));
-        }
-
-        return back()->with('success', 'Queued '.$pending->count().' pending/stale chunk(s). Run the queue worker (campaign_links) and refresh to see progress.');
+        return back()->with('success', 'Publishing '.$queued.' pending/stale chunk(s). Status is now Processing. Refresh to see progress.');
     }
 
     public function destroyLink(Campaign $campaign, CampaignLink $link)
