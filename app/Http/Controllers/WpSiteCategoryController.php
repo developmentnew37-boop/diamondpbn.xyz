@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\WpSite;
 use App\Models\WpSiteCategory;
 use App\Support\Workspace;
 use Illuminate\Http\Request;
@@ -9,6 +10,20 @@ use Illuminate\Validation\Rule;
 
 class WpSiteCategoryController extends Controller
 {
+    public function index()
+    {
+        $categories = WpSiteCategory::catalog()
+            ->withCount(['wpSites' => fn ($q) => $q->where('user_id', Workspace::ownerId())])
+            ->get();
+
+        return view('wp-sites.categories', [
+            'categories' => $categories,
+            'uncategorizedCount' => WpSite::where('user_id', Workspace::ownerId())
+                ->whereNull('wp_site_category_id')
+                ->count(),
+        ]);
+    }
+
     public function store(Request $request)
     {
         $name = trim((string) $request->input('name', ''));
@@ -28,7 +43,7 @@ class WpSiteCategoryController extends Controller
             'name_normalized' => $validated['name_normalized'],
         ]);
 
-        return back()->with('success', 'Category created.');
+        return redirect()->route('wp-sites.categories.index')->with('success', 'Category created.');
     }
 
     public function update(Request $request, WpSiteCategory $wpSiteCategory)
@@ -54,13 +69,13 @@ class WpSiteCategoryController extends Controller
             'name_normalized' => $validated['name_normalized'],
         ]);
 
-        return back()->with('success', 'Category renamed.');
+        return redirect()->route('wp-sites.categories.index')->with('success', 'Category renamed.');
     }
 
     public function destroy(WpSiteCategory $wpSiteCategory)
     {
         $wpSiteCategory->delete();
 
-        return back()->with('success', 'Category deleted. Sites in it are now uncategorized.');
+        return redirect()->route('wp-sites.categories.index')->with('success', 'Category deleted. Sites in it are now uncategorized.');
     }
 }

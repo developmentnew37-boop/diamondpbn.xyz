@@ -67,6 +67,9 @@
                     Import CSV/Excel
                 </button>
             </form>
+            <a href="{{ route('wp-sites.categories.index') }}" class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 transition-colors">
+                Categories
+            </a>
             <a href="{{ route('wp-sites.export', $listQuery) }}" class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 transition-colors">
                 <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M4 12l8 8m0 0l8-8m-8 8V4"/>
@@ -98,54 +101,6 @@
         </button>
         <button type="button" onclick="clearSelection()" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800">Clear</button>
     </form>
-
-    <div class="mb-6 grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <h3 class="text-sm font-semibold text-slate-800 mb-3">Categories</h3>
-            <p class="text-xs text-slate-500 mb-3">Shared for every account. Deleting a category unassigns sites; it does not delete them.</p>
-            <form method="POST" action="{{ route('wp-sites.categories.store') }}" class="flex flex-col sm:flex-row gap-2 mb-4">
-                @csrf
-                <input type="text" name="name" maxlength="80" required placeholder="New category name" value="{{ old('name') }}" class="flex-1 rounded-lg border-slate-300 text-sm focus:border-sky-500 focus:ring-sky-500">
-                <button type="submit" class="px-3 py-2 bg-sky-600 text-white text-sm rounded-lg hover:bg-sky-700">Add</button>
-            </form>
-            @error('name')<p class="text-red-500 text-xs mb-3">{{ $message }}</p>@enderror
-            @error('name_normalized')<p class="text-red-500 text-xs mb-3">{{ $message }}</p>@enderror
-            <div class="space-y-2 max-h-56 overflow-y-auto">
-                @forelse($categories as $category)
-                    <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-                        <form method="POST" action="{{ route('wp-sites.categories.update', $category) }}" class="flex-1 flex gap-2">
-                            @csrf
-                            @method('PATCH')
-                            <input type="text" name="name" maxlength="80" required value="{{ $category->name }}" class="flex-1 rounded-lg border-slate-300 text-sm focus:border-sky-500 focus:ring-sky-500">
-                            <button type="submit" class="px-2 py-1.5 text-xs font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200">Rename</button>
-                        </form>
-                        <form method="POST" action="{{ route('wp-sites.categories.destroy', $category) }}" onsubmit="return confirm('Delete this category? Sites in it will become uncategorized.');">
-                            @csrf
-                            @method('DELETE')
-                            <button type="submit" class="px-2 py-1.5 text-xs font-medium rounded-lg bg-red-50 text-red-700 hover:bg-red-100">Delete</button>
-                        </form>
-                    </div>
-                @empty
-                    <p class="text-xs text-slate-500">No categories yet.</p>
-                @endforelse
-            </div>
-        </div>
-        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-            <h3 class="text-sm font-semibold text-slate-800 mb-3">Set category by paste</h3>
-            <p class="text-xs text-slate-500 mb-3">Choose a category, paste domains (one per line), and apply. Unknown domains are skipped.</p>
-            <form method="POST" action="{{ route('wp-sites.bulk-category-paste') }}" class="space-y-3">
-                @csrf
-                <select name="wp_site_category_id" class="w-full rounded-lg border-slate-300 text-sm focus:border-sky-500 focus:ring-sky-500">
-                    <option value="">Clear category</option>
-                    @foreach($categories as $category)
-                        <option value="{{ $category->id }}">{{ $category->name }}</option>
-                    @endforeach
-                </select>
-                <textarea name="domains" rows="5" required placeholder="example.com&#10;anotherdomain.com" class="w-full rounded-lg border-slate-300 text-sm focus:border-sky-500 focus:ring-sky-500 font-mono"></textarea>
-                <button type="submit" class="px-3 py-2 bg-slate-800 text-white text-sm rounded-lg hover:bg-slate-900">Apply to matching sites</button>
-            </form>
-        </div>
-    </div>
 
     <div class="flex flex-col lg:flex-row gap-4 mb-6 w-full">
         <div class="flex-1 min-w-0 w-full bg-white rounded-xl border border-sky-200 p-4 shadow-sm">

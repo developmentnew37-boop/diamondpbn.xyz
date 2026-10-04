@@ -95,6 +95,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/wp-sites/block-inspect/toggle-all', [WpBlockInspectController::class, 'toggleAll'])->name('wp-sites.block-inspect.toggle-all');
         Route::post('/wp-sites/block-inspect/toggle-selected', [WpBlockInspectController::class, 'toggleSelected'])->name('wp-sites.block-inspect.toggle-selected');
         Route::post('/wp-sites/block-inspect/toggle-manual', [WpBlockInspectController::class, 'toggleManual'])->name('wp-sites.block-inspect.toggle-manual');
+        Route::get('/wp-sites/categories', [WpSiteCategoryController::class, 'index'])->name('wp-sites.categories.index');
         Route::post('/wp-sites/categories', [WpSiteCategoryController::class, 'store'])->name('wp-sites.categories.store');
         Route::patch('/wp-sites/categories/{wpSiteCategory}', [WpSiteCategoryController::class, 'update'])->name('wp-sites.categories.update');
         Route::delete('/wp-sites/categories/{wpSiteCategory}', [WpSiteCategoryController::class, 'destroy'])->name('wp-sites.categories.destroy');

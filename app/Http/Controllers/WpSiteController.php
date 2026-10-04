@@ -307,7 +307,7 @@ class WpSiteController extends Controller
         ))));
 
         if ($lines === []) {
-            return back()->with('error', 'Paste at least one domain.');
+            return redirect()->route('wp-sites.categories.index')->with('error', 'Paste at least one domain.');
         }
 
         $matched = collect();
@@ -341,14 +341,14 @@ class WpSiteController extends Controller
                 $preview .= ' +'.(count($unknown) - 10).' more';
             }
 
-            return back()->with('success', $message)->with('info', 'Unknown domains skipped: '.$preview);
+            return redirect()->route('wp-sites.categories.index')->with('success', $message)->with('info', 'Unknown domains skipped: '.$preview);
         }
 
         if ($updated === 0) {
-            return back()->with('error', 'No matching WP sites found for the pasted domains.');
+            return redirect()->route('wp-sites.categories.index')->with('error', 'No matching WP sites found for the pasted domains.');
         }
 
-        return back()->with('success', $message);
+        return redirect()->route('wp-sites.categories.index')->with('success', $message);
     }
 
     public function destroyImport(WpSiteImport $wpSiteImport)
