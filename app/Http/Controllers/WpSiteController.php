@@ -132,7 +132,10 @@ class WpSiteController extends Controller
 
     public function import(Request $request)
     {
-        $request->validate(['file' => 'required|file|mimes:csv,txt,xlsx,xls|max:10240']);
+        $validated = $request->validate([
+            'file' => 'required|file|mimes:csv,txt,xlsx,xls|max:10240',
+            'wp_site_category_id' => ['nullable', 'integer', Rule::exists('wp_site_categories', 'id')],
+        ]);
 
         $path = $request->file('file')->store('imports');
         $import = WpSiteImport::create([
@@ -141,9 +144,20 @@ class WpSiteController extends Controller
             'status' => 'pending',
         ]);
 
-        ImportWpSitesJob::dispatch($import)->onQueue('import_wp_sites');
+        ImportWpSitesJob::dispatch($import, $validated['wp_site_category_id'] ?? null)->onQueue('import_wp_sites');
 
         return redirect()->route('wp-sites.index')->with('success', 'Import queued. Run the wp sites queue worker to process.');
+    }
+
+    public function importSample()
+    {
+        $csv = "Domain,API URL,API Key,Category\n"
+            ."example.com,http://example.com/wp-json/pbn-hidden-link-manager/v1,,Casino\n"
+            ."anotherdomain.com,http://anotherdomain.com/wp-json/pbn-hidden-link-manager/v1,,Casino\n";
+
+        return response($csv)
+            ->header('Content-Type', 'text/csv')
+            ->header('Content-Disposition', 'attachment; filename="wp-sites-import-sample.csv"');
     }
 
     public function update(Request $request, WpSite $wpSite)

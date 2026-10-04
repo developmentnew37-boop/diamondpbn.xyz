@@ -21,7 +21,8 @@ class ImportWpSitesJob implements ShouldQueue
     public const QUEUE = 'import_wp_sites';
 
     public function __construct(
-        public WpSiteImport $wpSiteImport
+        public WpSiteImport $wpSiteImport,
+        public ?int $defaultCategoryId = null
     ) {
         $this->onQueue(self::QUEUE);
     }
@@ -78,6 +79,8 @@ class ImportWpSitesJob implements ShouldQueue
                     if ($category) {
                         $attrs['wp_site_category_id'] = $category->id;
                     }
+                } elseif ($this->defaultCategoryId) {
+                    $attrs['wp_site_category_id'] = $this->defaultCategoryId;
                 }
                 $siteModel = WpSite::updateOrCreate(
                     ['domain_normalized' => $normalized, 'user_id' => $import->user_id],
@@ -211,7 +214,7 @@ class ImportWpSitesJob implements ShouldQueue
             'domain' => $get(['domain']) ?: ($values[0] ?? null),
             'api_url' => $get(['api_url', 'apiurl']) ?: ($values[1] ?? null),
             'api_key' => $get(['api_key', 'apikey']) ?: ($values[2] ?? null),
-            'category' => $get(['category', 'wp_site_category']),
+            'category' => $get(['category', 'wp_site_category']) ?: null,
         ];
     }
 }

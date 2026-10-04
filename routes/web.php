@@ -91,6 +91,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         Route::get('/wp-sites', [WpSiteController::class, 'index'])->name('wp-sites.index');
         Route::get('/wp-sites/export', [WpSiteController::class, 'export'])->name('wp-sites.export');
+        Route::get('/wp-sites/import-sample', [WpSiteController::class, 'importSample'])->name('wp-sites.import-sample');
         Route::get('/wp-sites/block-inspect', [WpBlockInspectController::class, 'index'])->name('wp-sites.block-inspect');
         Route::post('/wp-sites/block-inspect/toggle-all', [WpBlockInspectController::class, 'toggleAll'])->name('wp-sites.block-inspect.toggle-all');
         Route::post('/wp-sites/block-inspect/toggle-selected', [WpBlockInspectController::class, 'toggleSelected'])->name('wp-sites.block-inspect.toggle-selected');

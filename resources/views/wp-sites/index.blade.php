@@ -57,16 +57,12 @@
                     Re-check All
                 </button>
             </form>
-            <form action="{{ route('wp-sites.import') }}" method="POST" enctype="multipart/form-data" class="inline w-full sm:w-auto">
-                @csrf
-                <input type="file" name="file" accept=".csv,.txt,.xlsx,.xls" class="hidden" id="import-file" onchange="this.form.submit()">
-                <button type="button" onclick="document.getElementById('import-file').click()" class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 transition-colors">
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-                    </svg>
-                    Import CSV/Excel
-                </button>
-            </form>
+            <button type="button" onclick="openImportWpSitesModal()" class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 transition-colors">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                </svg>
+                Import CSV/Excel
+            </button>
             <a href="{{ route('wp-sites.categories.index') }}" class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 transition-colors">
                 Categories
             </a>
@@ -121,63 +117,30 @@
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Filter by status</span>
-            <div class="inline-flex flex-wrap rounded-xl border border-slate-200 bg-slate-100/80 p-1 gap-1" role="tablist">
-                @php
-                    $filterTabs = [
-                        'all' => ['label' => 'All', 'count' => $statusCounts['all'] ?? 0, 'activeClass' => 'bg-slate-700 text-white'],
-                        'active' => ['label' => 'Connected', 'count' => $statusCounts['active'] ?? 0, 'activeClass' => 'bg-sky-600 text-white'],
-                        'inactive' => ['label' => 'Not connected', 'count' => $statusCounts['inactive'] ?? 0, 'activeClass' => 'bg-slate-600 text-white'],
-                        'error' => ['label' => 'Error', 'count' => $statusCounts['error'] ?? 0, 'activeClass' => 'bg-red-600 text-white'],
-                    ];
-                @endphp
-                @foreach($filterTabs as $key => $tab)
-                    @php
-                        $tabQuery = $listQuery;
-                        if ($key === 'all') {
-                            unset($tabQuery['status']);
-                        } else {
-                            $tabQuery['status'] = $key;
-                        }
-                        $isActive = $statusFilter === $key;
-                    @endphp
-                    <a href="{{ route('wp-sites.index', $tabQuery) }}"
-                        class="px-3 py-2 text-sm rounded-lg transition-colors {{ $isActive ? $tab['activeClass'].' font-semibold shadow-sm' : 'text-slate-600 hover:bg-white/60 font-medium' }}"
-                        @if($isActive) aria-current="page" @endif>
-                        {{ $tab['label'] }}
-                        <span class="tabular-nums ml-0.5 {{ $isActive ? 'opacity-90' : 'opacity-70' }}">{{ number_format($tab['count']) }}</span>
-                    </a>
-                @endforeach
+        <form method="GET" action="{{ route('wp-sites.index') }}" class="px-4 sm:px-6 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-end justify-end gap-3">
+            @if(($search ?? '') !== '')
+                <input type="hidden" name="search" value="{{ $search }}">
+            @endif
+            <div class="flex flex-col gap-1">
+                <label for="wp-site-status-filter" class="text-xs font-medium text-slate-500">Status</label>
+                <select id="wp-site-status-filter" name="status" onchange="this.form.submit()" class="h-9 w-56 rounded-lg border border-slate-200 bg-white pl-3 pr-9 text-sm text-slate-700 shadow-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500">
+                    <option value="all" @selected($statusFilter === 'all')>All ({{ number_format($statusCounts['all'] ?? 0) }})</option>
+                    <option value="active" @selected($statusFilter === 'active')>Connected ({{ number_format($statusCounts['active'] ?? 0) }})</option>
+                    <option value="inactive" @selected($statusFilter === 'inactive')>Not connected ({{ number_format($statusCounts['inactive'] ?? 0) }})</option>
+                    <option value="error" @selected($statusFilter === 'error')>Error ({{ number_format($statusCounts['error'] ?? 0) }})</option>
+                </select>
             </div>
-        </div>
-        <div class="px-4 sm:px-6 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Filter by category</span>
-            <div class="inline-flex flex-wrap rounded-xl border border-slate-200 bg-slate-100/80 p-1 gap-1">
-                @php
-                    $categoryTabs = collect([
-                        ['key' => 'all', 'label' => 'All'],
-                        ['key' => 'uncategorized', 'label' => 'Uncategorized'],
-                    ])->concat($categories->map(fn ($c) => ['key' => (string) $c->id, 'label' => $c->name]));
-                @endphp
-                @foreach($categoryTabs as $tab)
-                    @php
-                        $tabQuery = $listQuery;
-                        if ($tab['key'] === 'all') {
-                            unset($tabQuery['category']);
-                        } else {
-                            $tabQuery['category'] = $tab['key'];
-                        }
-                        $isCatActive = $categoryFilter === $tab['key'];
-                    @endphp
-                    <a href="{{ route('wp-sites.index', $tabQuery) }}"
-                        class="px-3 py-1.5 text-sm rounded-lg transition-colors {{ $isCatActive ? 'bg-slate-700 text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-white/60 font-medium' }}"
-                        @if($isCatActive) aria-current="page" @endif>
-                        {{ $tab['label'] }}
-                    </a>
-                @endforeach
+            <div class="flex flex-col gap-1">
+                <label for="wp-site-category-filter" class="text-xs font-medium text-slate-500">Category</label>
+                <select id="wp-site-category-filter" name="category" onchange="this.form.submit()" class="h-9 w-56 rounded-lg border border-slate-200 bg-white pl-3 pr-9 text-sm text-slate-700 shadow-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500">
+                    <option value="all" @selected($categoryFilter === 'all')>All</option>
+                    <option value="uncategorized" @selected($categoryFilter === 'uncategorized')>Uncategorized</option>
+                    @foreach($categories as $category)
+                        <option value="{{ $category->id }}" @selected($categoryFilter === (string) $category->id)>{{ $category->name }}</option>
+                    @endforeach
+                </select>
             </div>
-        </div>
+        </form>
         <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-slate-200">
                 <thead class="bg-slate-50">
@@ -369,12 +332,53 @@
         </div>
     </div>
 </div>
+<div id="import-wp-sites-modal" class="hidden fixed inset-0 z-[100] overflow-y-auto" role="dialog" aria-modal="true">
+    <div class="fixed inset-0 bg-slate-900/60" onclick="document.getElementById('import-wp-sites-modal').classList.add('hidden'); document.body.classList.remove('overflow-hidden');"></div>
+    <div class="relative flex min-h-full items-center justify-center p-4">
+        <div class="relative bg-white rounded-xl shadow-lg max-w-lg w-full p-6 z-10">
+            <h3 class="text-lg font-semibold text-slate-800 mb-1">Import WP Sites</h3>
+            <p class="text-sm text-slate-500 mb-4">CSV or Excel. Include a Category column to assign sites while importing.</p>
+            <div class="mb-4 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">
+                <p class="font-medium text-slate-700 mb-1">Columns</p>
+                <p><span class="font-mono">Domain</span>, <span class="font-mono">API URL</span>, <span class="font-mono">API Key</span> (optional), <span class="font-mono">Category</span> (optional)</p>
+            </div>
+            <form method="POST" action="{{ route('wp-sites.import') }}" enctype="multipart/form-data">
+                @csrf
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">File</label>
+                        <input type="file" name="file" accept=".csv,.txt,.xlsx,.xls" required class="w-full text-sm text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Default category (optional)</label>
+                        <select name="wp_site_category_id" class="w-full rounded-lg border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500">
+                            <option value="">None — use Category column only</option>
+                            @foreach($categories as $category)
+                                <option value="{{ $category->id }}">{{ $category->name }}</option>
+                            @endforeach
+                        </select>
+                        <p class="text-xs text-slate-500 mt-1">Used when a row has no Category value. A Category cell still wins, and a new name is created if it does not exist.</p>
+                    </div>
+                </div>
+                <div class="flex flex-col sm:flex-row gap-3 mt-6">
+                    <a href="{{ route('wp-sites.import-sample') }}" class="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50 text-center">Download sample</a>
+                    <button type="button" onclick="document.getElementById('import-wp-sites-modal').classList.add('hidden'); document.body.classList.remove('overflow-hidden');" class="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" class="flex-1 px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700">Import</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 @endpush
 
 @section('scripts')
 <script>
 function openAddWpSiteModal() {
     document.getElementById('add-wp-site-modal').classList.remove('hidden');
+    document.body.classList.add('overflow-hidden');
+}
+function openImportWpSitesModal() {
+    document.getElementById('import-wp-sites-modal').classList.remove('hidden');
     document.body.classList.add('overflow-hidden');
 }
 (function() {
