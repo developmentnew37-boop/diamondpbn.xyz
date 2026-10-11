@@ -17,7 +17,9 @@ class CampaignDomainHealthCheckJob implements ShouldQueue
 
     public const QUEUE = 'campaign_domains';
 
-    public int $tries = 3;
+    public int $tries = 2;
+
+    public int $timeout = 45;
 
     public function __construct(public CampaignDomain $campaignDomain)
     {
@@ -26,19 +28,20 @@ class CampaignDomainHealthCheckJob implements ShouldQueue
 
     public function backoff(): array
     {
-        return [10, 60, 300]; // 10s, 1m, 5m
+        return [5, 15];
     }
 
     public function handle(): void
     {
         $domain = $this->campaignDomain->fresh();
-        if (!$domain) {
+        if (! $domain) {
             return;
         }
 
-        $lock = Cache::lock('campaign-domain-health-' . $domain->id, 120);
-        if (!$lock->get()) {
-            $this->release(30);
+        $lock = Cache::lock('campaign-domain-health-'.$domain->id, 120);
+        if (! $lock->get()) {
+            $this->release(5);
+
             return;
         }
 
@@ -53,19 +56,12 @@ class CampaignDomainHealthCheckJob implements ShouldQueue
     {
         $result = $this->pingCampaignDomain($domain);
 
-        if (!($result['ok'] ?? false)) {
+        if (! ($result['ok'] ?? false)) {
             $errorMessage = $result['error'] ?? 'Health check failed';
             $domain->update([
                 'last_checked_at' => now(),
                 'last_health_error' => $errorMessage,
             ]);
-
-            if ($this->attempts() < $this->tries) {
-                $backoff = $this->backoff();
-                $delaySeconds = $backoff[$this->attempts() - 1] ?? 60;
-                $this->release($delaySeconds);
-                return;
-            }
 
             throw new \RuntimeException($errorMessage);
         }
@@ -80,21 +76,22 @@ class CampaignDomainHealthCheckJob implements ShouldQueue
     private function pingCampaignDomain(CampaignDomain $domain): array
     {
         $base = rtrim($domain->api_url, '/');
-        $url = str_ends_with($base, '/status') ? $base : $base . '/status';
+        $url = str_ends_with($base, '/status') ? $base : $base.'/status';
         $key = $domain->api_key ?: '';
 
         $headers = [
             'Accept' => 'application/json',
         ];
         if ($key !== '') {
-            $headers['Authorization'] = 'Bearer ' . $key;
+            $headers['Authorization'] = 'Bearer '.$key;
             $headers['X-API-Key'] = $key;
         }
 
         try {
             $response = Http::withoutVerifying()
                 ->withHeaders($headers)
-                ->timeout(30)
+                ->connectTimeout(3)
+                ->timeout(8)
                 ->get($url);
 
             if ($response->successful()) {
@@ -105,18 +102,19 @@ class CampaignDomainHealthCheckJob implements ShouldQueue
             $body = $response->body();
             $error = "HTTP {$status}";
             $decoded = @json_decode($body, true);
-            if (is_array($decoded) && !empty($decoded['message'])) {
+            if (is_array($decoded) && ! empty($decoded['message'])) {
                 $error = $decoded['message'];
             } elseif (trim($body) !== '') {
-                $preview = strlen($body) > 200 ? substr($body, 0, 200) . '…' : $body;
-                $error .= ' — ' . $preview;
+                $preview = strlen($body) > 200 ? substr($body, 0, 200).'…' : $body;
+                $error .= ' — '.$preview;
             }
             if ($status === 401 && $key === '') {
                 $error = 'Invalid or missing API key';
             }
+
             return ['ok' => false, 'error' => $error];
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            return ['ok' => false, 'error' => 'Connection failed: ' . $e->getMessage()];
+            return ['ok' => false, 'error' => 'Connection failed: '.$e->getMessage()];
         } catch (\Exception $e) {
             return ['ok' => false, 'error' => $e->getMessage()];
         }
@@ -125,13 +123,13 @@ class CampaignDomainHealthCheckJob implements ShouldQueue
     public function failed(\Throwable $e): void
     {
         $domain = $this->campaignDomain->fresh();
-        if (!$domain) {
+        if (! $domain) {
             return;
         }
 
         $message = trim((string) $e->getMessage());
         if ($message === '') {
-            $message = 'Health check failed after ' . $this->tries . ' attempts.';
+            $message = 'Health check failed after '.$this->tries.' attempts.';
         }
 
         $domain->update([

@@ -98,8 +98,9 @@ class CampaignDomainController extends Controller
         $validated['status'] = 'inactive';
 
         $domain = CampaignDomain::create($validated);
+        CampaignDomainHealthCheckJob::dispatch($domain);
 
-        return back()->with('success', 'Campaign domain added successfully.');
+        return back()->with('success', 'Campaign domain added. Health check queued.');
     }
 
     public function import(Request $request)
@@ -320,7 +321,7 @@ class CampaignDomainController extends Controller
             ->groupBy('domain_normalized')
             ->pluck('id');
 
-        $query = CampaignDomain::whereIn('id', $ids);
+        $query = CampaignDomain::whereIn('id', $ids)->select('id');
         if ($statusFilter === 'active') {
             $query->where('status', 'active');
         } elseif ($statusFilter === 'inactive') {
@@ -329,12 +330,14 @@ class CampaignDomainController extends Controller
             $query->where('status', 'error');
         }
 
-        $domains = $query->get();
-
-        foreach ($domains as $domain) {
-            CampaignDomainHealthCheckJob::dispatch($domain);
+        $queued = 0;
+        foreach ($query->pluck('id')->chunk(500) as $part) {
+            foreach (CampaignDomain::whereIn('id', $part)->select('id')->get() as $domain) {
+                CampaignDomainHealthCheckJob::dispatch($domain);
+                $queued++;
+            }
         }
 
-        return back()->with('success', 'Health checks queued for ' . $domains->count() . ' domain(s)');
+        return back()->with('success', 'Health checks queued for '.$queued.' domain(s)');
     }
 }

@@ -10,7 +10,8 @@
 ;   PBN publish:     batch_links, campaign_links
 ;   PBN delete:      delete_batch_links, delete_campaign_links
 ;   PBN remove link: remove_link_from_batch, remove_link_from_campaign
-;   PBN domains:     import_domains, domains, campaign_domains, toggle_hidden_links
+;   PBN domains:     import_domains, domains, toggle_hidden_links
+;   Target domains:  campaign_domains (dedicated workers — do not share with import_domains)
 ;   WP publish:      wp_batch_links
 ;   WP delete:       delete_wp_batch_links
 ;   WP remove link:  remove_link_from_wp_batch
@@ -134,11 +135,11 @@ stopasgroup=true
 killasgroup=true
 
 ; ---------------------------------------------------------------------------
-; Domains: PBN health checks, CSV imports, campaign domains, hidden-link toggle
+; Domains: PBN health checks, CSV imports, hidden-link toggle
 ; ---------------------------------------------------------------------------
 [program:hidden-links-domains]
 process_name=%(program_name)s_%(process_num)02d
-command=php /var/www/hidden-links-management/artisan queue:work database --queue=import_domains,domains,campaign_domains,toggle_hidden_links --sleep=3 --tries=3 --timeout=1200 --max-time=3600
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=import_domains,domains,toggle_hidden_links --sleep=3 --tries=3 --timeout=1200 --max-time=3600
 directory=/var/www/hidden-links-management
 user=www-data
 numprocs=2
@@ -147,6 +148,25 @@ autorestart=true
 stopwaitsecs=1300
 redirect_stderr=true
 stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-domains.log
+stopasgroup=true
+killasgroup=true
+
+; ---------------------------------------------------------------------------
+; Target Domains: campaign domain health checks after import / Check All
+; Jobs: CampaignDomainHealthCheckJob
+; Keep this off hidden-links-domains or import/PBN checks block campaign pings for hours.
+; ---------------------------------------------------------------------------
+[program:hidden-links-campaign-domains]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/hidden-links-management/artisan queue:work database --queue=campaign_domains --sleep=1 --tries=2 --timeout=60 --max-time=3600
+directory=/var/www/hidden-links-management
+user=www-data
+numprocs=4
+autostart=true
+autorestart=true
+stopwaitsecs=70
+redirect_stderr=true
+stdout_logfile=/var/www/hidden-links-management/storage/logs/worker-campaign-domains.log
 stopasgroup=true
 killasgroup=true
 
