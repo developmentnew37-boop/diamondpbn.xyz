@@ -3,8 +3,10 @@
 namespace App\Jobs;
 
 use App\Models\CampaignDomain;
+use App\Models\CampaignDomainChunk;
 use App\Services\PbnApiService;
 use App\Support\CampaignDeletionTracker;
+use App\Support\RunRemoteDelete;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -54,21 +56,8 @@ class DeleteCampaignLinksJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        $ping = $api->pingCampaignDomain($domain);
-        if (! ($ping['ok'] ?? false)) {
-            Log::warning('DeleteCampaignLinksJob: skipping unresponsive domain', [
-                'campaign_id' => $this->campaignId,
-                'campaign_domain_id' => $this->campaignDomainId,
-                'domain' => $domain->domain,
-                'error' => $ping['error'] ?? 'Health check failed',
-            ]);
-
-            CampaignDeletionTracker::domainCompleted(
-                $this->campaignId,
-                $this->campaignDomainId,
-                false,
-                $ping['error'] ?? 'Site did not respond to health check'
-            );
+        if (! RunRemoteDelete::ownerNeedsRemote(CampaignDomainChunk::class, 'campaign_id', 'campaign_domain_id', $this->campaignId, $this->campaignDomainId)) {
+            CampaignDeletionTracker::domainCompleted($this->campaignId, $this->campaignDomainId, true);
 
             return;
         }

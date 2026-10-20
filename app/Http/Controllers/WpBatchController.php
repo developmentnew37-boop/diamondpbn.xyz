@@ -16,6 +16,7 @@ use App\Support\PbnSettings;
 use App\Support\PublishPendingChunks;
 use App\Support\ReplaceFailedChunkLink;
 use App\Support\RunProgress;
+use App\Support\RunRemoteDelete;
 use App\Support\UnicodeUrl;
 use App\Support\Workspace;
 use App\Support\WpBatchDeletionTracker;
@@ -49,6 +50,10 @@ class WpBatchController extends Controller
             });
         }
 
+        $view = $request->query('view') === 'deleting' ? 'deleting' : 'all';
+        $deletingCount = (clone $query)->where('status', 'deleting')->count();
+        RunRemoteDelete::applyListView($query, $view);
+
         $wpBatches = $query
             ->withSum('wpBatchSiteChunks as chunks_success', 'success_count')
             ->withSum('wpBatchSiteChunks as chunks_failed', 'failed_count')
@@ -56,7 +61,7 @@ class WpBatchController extends Controller
             ->paginate(25)
             ->withQueryString();
 
-        return view('wp-batches.index', compact('wpBatches', 'search'));
+        return view('wp-batches.index', compact('wpBatches', 'search', 'view', 'deletingCount'));
     }
 
     public function create()
@@ -711,9 +716,9 @@ class WpBatchController extends Controller
     {
         Workspace::assertCanManageRun($wpBatch->user_id);
 
-        $hasSiteChunks = WpBatchSiteChunk::where('wp_batch_id', $wpBatch->id)->exists();
+        $remoteSiteIds = RunRemoteDelete::ownerIds(WpBatchSiteChunk::class, 'wp_batch_id', 'wp_site_id', $wpBatch->id);
 
-        if (! $hasSiteChunks) {
+        if ($remoteSiteIds === []) {
             WpBatchDeletionTracker::forget($wpBatch->id);
             $wpBatch->delete();
 

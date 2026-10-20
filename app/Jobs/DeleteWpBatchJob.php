@@ -12,6 +12,8 @@ use App\Models\WpBatchSiteChunk;
 
 use App\Support\PbnSettings;
 
+use App\Support\RunRemoteDelete;
+
 use App\Support\WpBatchDeletionTracker;
 
 use Illuminate\Bus\Queueable;
@@ -102,17 +104,13 @@ class DeleteWpBatchJob implements ShouldQueue, ShouldBeUnique
 
 
 
-        $siteIds = WpBatchSiteChunk::where('wp_batch_id', $batch->id)
-
-            ->pluck('wp_site_id')
-
-            ->unique()
-
-            ->values();
+        $siteIds = collect(RunRemoteDelete::ownerIds(WpBatchSiteChunk::class, 'wp_batch_id', 'wp_site_id', $batch->id));
 
 
 
         if ($siteIds->isEmpty()) {
+
+            WpBatchDeletionTracker::forget($batch->id);
 
             $batch->delete();
 

@@ -2,9 +2,11 @@
 
 namespace App\Jobs;
 
+use App\Models\BatchDomainChunk;
 use App\Models\Domain;
 use App\Services\PbnApiService;
 use App\Support\BatchDeletionTracker;
+use App\Support\RunRemoteDelete;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -55,21 +57,8 @@ class DeleteBatchDomainJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        $ping = $api->ping($domain);
-        if (! ($ping['ok'] ?? false)) {
-            Log::warning('DeleteBatchDomainJob: skipping unresponsive domain', [
-                'batch_id' => $this->batchId,
-                'domain_id' => $this->domainId,
-                'domain' => $domain->domain,
-                'error' => $ping['error'] ?? 'Health check failed',
-            ]);
-
-            BatchDeletionTracker::domainCompleted(
-                $this->batchId,
-                $this->domainId,
-                false,
-                $ping['error'] ?? 'Site did not respond to health check'
-            );
+        if (! RunRemoteDelete::ownerNeedsRemote(BatchDomainChunk::class, 'batch_id', 'domain_id', $this->batchId, $this->domainId)) {
+            BatchDeletionTracker::domainCompleted($this->batchId, $this->domainId, true);
 
             return;
         }

@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Support\BatchDeletionTracker;
 use App\Jobs\DeleteBatchDomainJob;
 use App\Jobs\DeleteBatchJob;
 use App\Jobs\PublishBatchChunkJob;
@@ -12,11 +11,12 @@ use App\Models\Batch;
 use App\Models\BatchDomainChunk;
 use App\Models\Domain;
 use App\Models\Link;
-use App\Services\PbnApiService;
+use App\Support\BatchDeletionTracker;
 use App\Support\PbnSettings;
 use App\Support\PublishPendingChunks;
 use App\Support\ReplaceFailedChunkLink;
 use App\Support\RunProgress;
+use App\Support\RunRemoteDelete;
 use App\Support\UnicodeUrl;
 use App\Support\Workspace;
 use Illuminate\Http\Request;
@@ -67,6 +67,10 @@ class BatchController extends Controller
             });
         }
 
+        $view = $request->query('view') === 'deleting' ? 'deleting' : 'all';
+        $deletingCount = (clone $query)->where('status', 'deleting')->count();
+        RunRemoteDelete::applyListView($query, $view);
+
         $batches = $query
             ->withSum('batchDomainChunks as chunks_success', 'success_count')
             ->withSum('batchDomainChunks as chunks_failed', 'failed_count')
@@ -74,7 +78,7 @@ class BatchController extends Controller
             ->paginate(25)
             ->withQueryString();
 
-        return view('batches.index', compact('batches', 'search'));
+        return view('batches.index', compact('batches', 'search', 'view', 'deletingCount'));
     }
 
     public function create()
@@ -281,13 +285,13 @@ class BatchController extends Controller
         $csv = stream_get_contents($fh);
         fclose($fh);
 
-        $slug = Str::slug($batch->name ?? 'batch-' . $batch->id) ?: 'batch-' . $batch->id;
-        $filterSuffix = $filter === 'all' ? '' : '-' . $filter;
-        $filename = 'batch-' . $batch->id . '-' . $slug . '-domains' . $filterSuffix . '-' . now()->format('Ymd-His') . '.csv';
+        $slug = Str::slug($batch->name ?? 'batch-'.$batch->id) ?: 'batch-'.$batch->id;
+        $filterSuffix = $filter === 'all' ? '' : '-'.$filter;
+        $filename = 'batch-'.$batch->id.'-'.$slug.'-domains'.$filterSuffix.'-'.now()->format('Ymd-His').'.csv';
 
         return response($csv)
             ->header('Content-Type', 'text/csv')
-            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+            ->header('Content-Disposition', 'attachment; filename="'.$filename.'"');
     }
 
     /** View all links and chunks for a specific domain in a batch */
@@ -724,10 +728,9 @@ class BatchController extends Controller
     {
         Workspace::assertCanManageRun($batch->user_id);
 
-        $hasDomainChunks = BatchDomainChunk::where('batch_id', $batch->id)->exists();
+        $remoteDomainIds = RunRemoteDelete::ownerIds(BatchDomainChunk::class, 'batch_id', 'domain_id', $batch->id);
 
-        // No domains left in this batch — delete locally now (no remote API calls needed).
-        if (! $hasDomainChunks) {
+        if ($remoteDomainIds === []) {
             BatchDeletionTracker::forget($batch->id);
             $batch->delete();
 

@@ -258,7 +258,7 @@ class PbnApiService
 
     /**
      * Delete all hidden links for a batch_id on a remote domain (api.md: DELETE /hidden-links/by-batch-id).
-     * Uses a long timeout and retries transient upstream errors (508, 522, etc.).
+     * The site deletes matching rows in one query and returns 200 even when none exist.
      */
     public function deleteLinksByBatchId(Domain $domain, int $batchId): array
     {
@@ -295,8 +295,8 @@ class PbnApiService
             $headers['X-API-Key'] = $apiKey;
         }
 
-        $timeout = PbnSettings::getDeleteTimeoutSeconds();
-        $maxAttempts = 5;
+        $timeout = 60;
+        $maxAttempts = 2;
         $retryableStatuses = [408, 429, 500, 502, 503, 504, 508, 522, 524];
         $lastException = null;
 
@@ -325,7 +325,7 @@ class PbnApiService
                 $lastException = new \RuntimeException($message);
 
                 if (in_array($response->status(), $retryableStatuses, true) && $attempt < $maxAttempts) {
-                    sleep(min(120, 15 * $attempt));
+                    sleep(5);
                     continue;
                 }
 
@@ -333,7 +333,7 @@ class PbnApiService
             } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 $lastException = $e;
                 if ($attempt < $maxAttempts) {
-                    sleep(min(120, 15 * $attempt));
+                    sleep(5);
                     continue;
                 }
                 throw $e;

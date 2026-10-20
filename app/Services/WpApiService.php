@@ -153,8 +153,8 @@ class WpApiService
             $headers['X-API-Key'] = $apiKey;
         }
 
-        $timeout = PbnSettings::getDeleteTimeoutSeconds();
-        $maxAttempts = 5;
+        $timeout = 60;
+        $maxAttempts = 2;
         $retryableStatuses = [408, 429, 500, 502, 503, 504, 508, 522, 524];
         $lastException = null;
 
@@ -182,7 +182,7 @@ class WpApiService
                 $lastException = new \RuntimeException($message);
 
                 if (in_array($response->status(), $retryableStatuses, true) && $attempt < $maxAttempts) {
-                    sleep(min(120, 15 * $attempt));
+                    sleep(5);
                     continue;
                 }
 
@@ -190,7 +190,7 @@ class WpApiService
             } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 $lastException = $e;
                 if ($attempt < $maxAttempts) {
-                    sleep(min(120, 15 * $attempt));
+                    sleep(5);
                     continue;
                 }
                 throw $e;

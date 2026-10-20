@@ -16,10 +16,13 @@
         </div>
         <div class="flex items-center gap-3">
             <form method="GET" action="{{ route('batches.index') }}" class="flex items-center gap-2">
+                @if(($view ?? 'all') === 'deleting')
+                    <input type="hidden" name="view" value="deleting">
+                @endif
                 <input type="text" name="search" value="{{ old('search', $search ?? '') }}" placeholder="Search by batch name or link (URL/keyword)..." class="w-48 sm:w-72 rounded-lg border-slate-300 shadow-sm focus:border-emerald-500 focus:ring-emerald-500 text-sm">
                 <button type="submit" class="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-sm font-medium">Search</button>
                 @if(!empty($search ?? ''))
-                    <a href="{{ route('batches.index') }}" class="text-sm text-slate-500 hover:text-slate-700">Clear</a>
+                    <a href="{{ route('batches.index', ($view ?? 'all') === 'deleting' ? ['view' => 'deleting'] : []) }}" class="text-sm text-slate-500 hover:text-slate-700">Clear</a>
                 @endif
             </form>
             <a href="{{ route('batches.create') }}" class="inline-flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors">
@@ -30,6 +33,7 @@
             </a>
         </div>
     </div>
+    @include('partials.run-list-tabs', ['route' => 'batches.index', 'activeClass' => 'bg-emerald-600 text-white'])
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-slate-200">
@@ -126,7 +130,13 @@
                                 <svg class="mx-auto h-12 w-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
                                 </svg>
-                                <p class="mt-2">No batches yet. <a href="{{ route('batches.create') }}" class="text-emerald-600 hover:underline">Create your first batch</a></p>
+                                <p class="mt-2">
+                                    @if(($view ?? 'all') === 'deleting')
+                                        No batches are being deleted.
+                                    @else
+                                        No batches yet. <a href="{{ route('batches.create') }}" class="text-emerald-600 hover:underline">Create your first batch</a>
+                                    @endif
+                                </p>
                             </td>
                         </tr>
                     @endforelse

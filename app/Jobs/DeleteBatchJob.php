@@ -6,6 +6,7 @@ use App\Models\Batch;
 use App\Models\BatchDomainChunk;
 use App\Support\BatchDeletionTracker;
 use App\Support\PbnSettings;
+use App\Support\RunRemoteDelete;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -50,12 +51,10 @@ class DeleteBatchJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        $domainIds = BatchDomainChunk::where('batch_id', $batch->id)
-            ->pluck('domain_id')
-            ->unique()
-            ->values();
+        $domainIds = collect(RunRemoteDelete::ownerIds(BatchDomainChunk::class, 'batch_id', 'domain_id', $batch->id));
 
         if ($domainIds->isEmpty()) {
+            BatchDeletionTracker::forget($batch->id);
             $batch->delete();
 
             return;

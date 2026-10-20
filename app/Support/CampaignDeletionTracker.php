@@ -24,6 +24,13 @@ class CampaignDeletionTracker
         Cache::forget(self::key($campaignId, 'succeeded'));
     }
 
+    public static function forget(int $campaignId): void
+    {
+        Cache::forget(self::key($campaignId, 'remaining'));
+        Cache::forget(self::key($campaignId, 'failed'));
+        Cache::forget(self::key($campaignId, 'succeeded'));
+    }
+
     public static function isInProgress(int $campaignId): bool
     {
         return Cache::has(self::key($campaignId, 'remaining'));

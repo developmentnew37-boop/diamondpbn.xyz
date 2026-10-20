@@ -6,6 +6,7 @@ use App\Models\Campaign;
 use App\Models\CampaignDomainChunk;
 use App\Support\CampaignDeletionTracker;
 use App\Support\PbnSettings;
+use App\Support\RunRemoteDelete;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -46,12 +47,10 @@ class DeleteCampaignJob implements ShouldQueue, ShouldBeUnique
             return;
         }
 
-        $domainIds = CampaignDomainChunk::where('campaign_id', $campaign->id)
-            ->pluck('campaign_domain_id')
-            ->unique()
-            ->values();
+        $domainIds = collect(RunRemoteDelete::ownerIds(CampaignDomainChunk::class, 'campaign_id', 'campaign_domain_id', $campaign->id));
 
         if ($domainIds->isEmpty()) {
+            CampaignDeletionTracker::forget($campaign->id);
             $campaign->delete();
 
             return;

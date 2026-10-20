@@ -6,9 +6,13 @@ namespace App\Jobs;
 
 
 
+use App\Models\WpBatchSiteChunk;
+
 use App\Models\WpSite;
 
 use App\Services\WpApiService;
+
+use App\Support\RunRemoteDelete;
 
 use App\Support\WpBatchDeletionTracker;
 
@@ -112,35 +116,9 @@ class DeleteWpBatchSiteJob implements ShouldQueue, ShouldBeUnique
 
 
 
-        $ping = $api->ping($site);
+        if (! RunRemoteDelete::ownerNeedsRemote(WpBatchSiteChunk::class, 'wp_batch_id', 'wp_site_id', $this->batchId, $this->siteId)) {
 
-        if (! ($ping['ok'] ?? false)) {
-
-            Log::warning('DeleteWpBatchSiteJob: skipping unresponsive site', [
-
-                'wp_batch_id' => $this->batchId,
-
-                'wp_site_id' => $this->siteId,
-
-                'domain' => $site->domain,
-
-                'error' => $ping['error'] ?? 'Health check failed',
-
-            ]);
-
-
-
-            WpBatchDeletionTracker::siteCompleted(
-
-                $this->batchId,
-
-                $this->siteId,
-
-                false,
-
-                $ping['error'] ?? 'Site did not respond to health check'
-
-            );
+            WpBatchDeletionTracker::siteCompleted($this->batchId, $this->siteId, true);
 
 
 

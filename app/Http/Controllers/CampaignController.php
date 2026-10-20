@@ -9,10 +9,12 @@ use App\Models\Campaign;
 use App\Models\CampaignDomain;
 use App\Models\CampaignDomainChunk;
 use App\Models\CampaignLink;
+use App\Support\CampaignDeletionTracker;
 use App\Support\PbnSettings;
 use App\Support\PublishPendingChunks;
 use App\Support\ReplaceFailedChunkLink;
 use App\Support\RunProgress;
+use App\Support\RunRemoteDelete;
 use App\Support\UnicodeUrl;
 use App\Support\Workspace;
 use Illuminate\Http\Request;
@@ -44,12 +46,16 @@ class CampaignController extends Controller
             });
         }
 
+        $view = $request->query('view') === 'deleting' ? 'deleting' : 'all';
+        $deletingCount = (clone $query)->where('status', 'deleting')->count();
+        RunRemoteDelete::applyListView($query, $view);
+
         $campaigns = $query
             ->latest()
             ->paginate(25)
             ->withQueryString();
 
-        return view('campaigns.index', compact('campaigns', 'search'));
+        return view('campaigns.index', compact('campaigns', 'search', 'view', 'deletingCount'));
     }
 
     public function create()
@@ -612,6 +618,15 @@ class CampaignController extends Controller
     public function destroy(Campaign $campaign)
     {
         Workspace::assertCanManageRun($campaign->user_id);
+
+        $remoteDomainIds = RunRemoteDelete::ownerIds(CampaignDomainChunk::class, 'campaign_id', 'campaign_domain_id', $campaign->id);
+
+        if ($remoteDomainIds === []) {
+            CampaignDeletionTracker::forget($campaign->id);
+            $campaign->delete();
+
+            return redirect()->route('campaigns.index')->with('success', 'Campaign deleted.');
+        }
 
         if ($campaign->status === 'deleting') {
             return back()->with('info', 'Campaign deletion is already in progress. Run the queue worker (delete_campaign_links).');

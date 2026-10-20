@@ -34,9 +34,9 @@ class DashboardController extends Controller
                 ->whereIn('status', ['pending', 'processing'])->count(),
         ];
 
-        $recentBatches = Workspace::scopeOwnPosting(Batch::query())->latest()->take(5)->get();
-        $recentCampaigns = Workspace::scopeOwnPosting(Campaign::query())->latest()->take(5)->get();
-        $recentWpBatches = Workspace::scopeOwnPosting(WpBatch::query())->latest()->take(5)->get();
+        $recentBatches = Workspace::scopeOwnPosting(Batch::query())->where('status', '!=', 'deleting')->latest()->take(5)->get();
+        $recentCampaigns = Workspace::scopeOwnPosting(Campaign::query())->where('status', '!=', 'deleting')->latest()->take(5)->get();
+        $recentWpBatches = Workspace::scopeOwnPosting(WpBatch::query())->where('status', '!=', 'deleting')->latest()->take(5)->get();
 
         return view('dashboard.index', compact('stats', 'recentBatches', 'recentCampaigns', 'recentWpBatches'));
     }
