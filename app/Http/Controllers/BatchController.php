@@ -13,6 +13,7 @@ use App\Models\Domain;
 use App\Models\Link;
 use App\Support\BatchDeletionTracker;
 use App\Support\PbnSettings;
+use App\Support\PostedIdList;
 use App\Support\PublishPendingChunks;
 use App\Support\ReplaceFailedChunkLink;
 use App\Support\RunProgress;
@@ -90,6 +91,7 @@ class BatchController extends Controller
 
     public function store(Request $request)
     {
+        PostedIdList::merge($request, 'domain_ids', 'domain_ids_json');
 
         $linksInput = null;
 

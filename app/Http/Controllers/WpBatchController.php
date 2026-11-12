@@ -13,6 +13,7 @@ use App\Models\WpLink;
 use App\Models\WpSite;
 use App\Models\WpSiteCategory;
 use App\Support\PbnSettings;
+use App\Support\PostedIdList;
 use App\Support\PublishPendingChunks;
 use App\Support\ReplaceFailedChunkLink;
 use App\Support\RunProgress;
@@ -85,6 +86,8 @@ class WpBatchController extends Controller
 
     public function store(Request $request)
     {
+        PostedIdList::merge($request, 'wp_site_ids', 'wp_site_ids_json');
+
         $linksInput = null;
 
         $linksBulk = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', (string) $request->input('links_bulk', '')))));

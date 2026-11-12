@@ -433,6 +433,19 @@
                     alert('Please add at least one link.');
                     return;
                 }
+
+                if (form.querySelector('input[name="domain_ids_json"]')) {
+                    e.preventDefault();
+                    return;
+                }
+
+                const domainIds = domainCheckboxes().filter(cb => cb.checked).map(cb => cb.value);
+                form.querySelectorAll('input[name="domain_ids[]"]').forEach(cb => cb.removeAttribute('name'));
+                const domainInput = document.createElement('input');
+                domainInput.type = 'hidden';
+                domainInput.name = 'domain_ids_json';
+                domainInput.value = JSON.stringify(domainIds.map(id => Number(id)).filter(id => Number.isInteger(id) && id > 0));
+                form.appendChild(domainInput);
             });
 
             updateCounts();

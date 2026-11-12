@@ -483,6 +483,9 @@
                     alert('Add at least one link. Use the manual links (URLs + keywords) or paste JSON.');
                     return;
                 }
+                if (form.querySelector('input[name="wp_site_ids_json"]')) {
+                    return;
+                }
                 if (wpSiteIds.length === 0) {
                     alert('Select at least one WP site.');
                     return;
@@ -493,6 +496,12 @@
                 input.name = 'links';
                 input.value = JSON.stringify(links);
                 form.appendChild(input);
+                form.querySelectorAll('input[name="wp_site_ids[]"]').forEach(cb => cb.removeAttribute('name'));
+                const siteInput = document.createElement('input');
+                siteInput.type = 'hidden';
+                siteInput.name = 'wp_site_ids_json';
+                siteInput.value = JSON.stringify(wpSiteIds.map(id => Number(id)).filter(id => Number.isInteger(id) && id > 0));
+                form.appendChild(siteInput);
                 form.submit();
             });
         })();

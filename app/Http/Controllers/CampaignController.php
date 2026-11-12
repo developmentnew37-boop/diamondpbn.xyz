@@ -11,6 +11,7 @@ use App\Models\CampaignDomainChunk;
 use App\Models\CampaignLink;
 use App\Support\CampaignDeletionTracker;
 use App\Support\PbnSettings;
+use App\Support\PostedIdList;
 use App\Support\PublishPendingChunks;
 use App\Support\ReplaceFailedChunkLink;
 use App\Support\RunProgress;
@@ -83,6 +84,8 @@ class CampaignController extends Controller
 
     public function store(Request $request)
     {
+        PostedIdList::merge($request, 'domain_ids', 'domain_ids_json');
+
         $linksInput = null;
 
         // Primary: manual bulk (links + keywords) - paired by line index
