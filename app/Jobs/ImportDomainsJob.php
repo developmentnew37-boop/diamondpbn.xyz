@@ -6,6 +6,7 @@ use App\Models\Domain;
 use App\Models\DomainImport;
 use App\Jobs\DomainHealthCheckJob;
 use App\Support\ApiUrlHelper;
+use App\Support\ImportSiteRow;
 use App\Support\SafeApiUrl;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -50,9 +51,9 @@ class ImportDomainsJob implements ShouldQueue
             $import->update(['total_rows' => count($rows)]);
 
             foreach ($rows as $row) {
-                $domain = $row['domain'] ?? $row[0] ?? null;
-                $apiUrl = $row['api_url'] ?? $row[1] ?? null;
-                if (!$domain || !$apiUrl) {
+                $domain = ImportSiteRow::domain($row);
+                $apiUrl = ImportSiteRow::apiUrl($row);
+                if (! $domain || ! $apiUrl) {
                     $skipped++;
                     continue;
                 }
@@ -70,7 +71,7 @@ class ImportDomainsJob implements ShouldQueue
                         'domain' => $normalized,
                         'domain_normalized' => $normalized,
                         'api_url' => $apiUrl,
-                        'api_key' => $row['api_key'] ?? $row[2] ?? null,
+                        'api_key' => ImportSiteRow::apiKey($row),
                         'status' => 'inactive',
                         'domain_import_id' => $import->id,
                     ]

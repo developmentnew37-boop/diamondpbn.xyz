@@ -318,11 +318,12 @@ class DomainController extends Controller
             ->get();
 
         $lines = [];
-        $lines[] = ['Domain', 'API URL', 'Status', 'Last Checked', 'Last Error', 'Notes'];
+        $lines[] = ['Domain', 'API URL', 'API Key', 'Status', 'Last Checked', 'Last Error', 'Notes'];
         foreach ($domains as $domain) {
             $lines[] = [
                 $domain->domain,
                 $domain->api_url,
+                $domain->api_key ?? '',
                 $domain->status ?? 'inactive',
                 optional($domain->last_checked_at)->toDateTimeString() ?? '',
                 $domain->last_health_error ?? '',

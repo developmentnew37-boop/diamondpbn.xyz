@@ -61,7 +61,7 @@
                     Import CSV/Excel
                 </button>
             </form>
-            <a href="{{ route('campaign-domains.export', $listQuery) }}" class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 transition-colors">
+            <a href="{{ route('campaign-domains.export', $listQuery) }}" title="CSV includes API keys. Keep the file private." class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 transition-colors">
                 <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M4 12l8 8m0 0l8-8m-8 8V4"/>
                 </svg>

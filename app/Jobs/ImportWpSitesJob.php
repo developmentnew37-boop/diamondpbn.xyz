@@ -6,6 +6,7 @@ use App\Models\WpSite;
 use App\Models\WpSiteCategory;
 use App\Models\WpSiteImport;
 use App\Support\ApiUrlHelper;
+use App\Support\ImportSiteRow;
 use App\Support\SafeApiUrl;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -51,9 +52,9 @@ class ImportWpSitesJob implements ShouldQueue
             $import->update(['total_rows' => count($rows)]);
 
             foreach ($rows as $row) {
-                $domain = $row['domain'] ?? $row[0] ?? null;
-                $apiUrl = $row['api_url'] ?? $row[1] ?? null;
-                if (!$domain || !$apiUrl) {
+                $domain = ImportSiteRow::domain($row);
+                $apiUrl = ImportSiteRow::apiUrl($row);
+                if (! $domain || ! $apiUrl) {
                     $skipped++;
                     continue;
                 }
@@ -69,7 +70,7 @@ class ImportWpSitesJob implements ShouldQueue
                     'domain' => $normalized,
                     'domain_normalized' => $normalized,
                     'api_url' => $apiUrl,
-                    'api_key' => $row['api_key'] ?? $row[2] ?? null,
+                    'api_key' => ImportSiteRow::apiKey($row),
                     'status' => 'inactive',
                     'wp_site_import_id' => $import->id,
                 ];
@@ -155,11 +156,18 @@ class ImportWpSitesJob implements ShouldQueue
 
     private function rowCategory(array $row): ?string
     {
+        $row = ImportSiteRow::normalize($row);
+
         foreach (['category', 'wp_site_category'] as $key) {
             $value = trim((string) ($row[$key] ?? ''));
             if ($value !== '') {
                 return $value;
             }
+        }
+
+        // Named export puts Category after Notes; simple 4-column imports still use index 3.
+        if (array_key_exists('api_key', $row) || array_key_exists('status', $row)) {
+            return null;
         }
 
         $positional = trim((string) ($row[3] ?? ''));

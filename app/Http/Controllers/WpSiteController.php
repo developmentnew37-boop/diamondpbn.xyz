@@ -444,11 +444,12 @@ class WpSiteController extends Controller
             ->get();
 
         $lines = [];
-        $lines[] = ['Domain', 'API URL', 'Status', 'Last Checked', 'Last Error', 'Notes', 'Category'];
+        $lines[] = ['Domain', 'API URL', 'API Key', 'Status', 'Last Checked', 'Last Error', 'Notes', 'Category'];
         foreach ($wpSites as $wpSite) {
             $lines[] = [
                 $wpSite->domain,
                 $wpSite->api_url,
+                $wpSite->api_key ?? '',
                 $wpSite->status ?? 'inactive',
                 optional($wpSite->last_checked_at)->toDateTimeString() ?? '',
                 $wpSite->last_health_error ?? '',
